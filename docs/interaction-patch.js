@@ -29,6 +29,7 @@ const PATCH_UNDO_LIMIT = 80;
   };
 
   installMergeButton();
+  installAddCategoryButton();
   installPatchKeyboardShortcuts();
   installBetterZoneLabelAnchor();
   installCategoryReassignHandler();
@@ -40,6 +41,100 @@ const PATCH_UNDO_LIMIT = 80;
   canvas.addEventListener("pointercancel", onPatchPointerUp, true);
 })();
 
+
+function installAddCategoryButton() {
+  const button = document.getElementById("addCategoryButton");
+  if (!button) return;
+
+  button.addEventListener("click", () => {
+    pushUndoState();
+
+    const nextIndex = plan.categories.length + 1;
+    const categoryId = createUniqueCategoryId(`category-${nextIndex}`);
+    const category = {
+      id: categoryId,
+      name: `Category ${nextIndex}`,
+      color: getNextCategoryColor(plan.categories.length)
+    };
+
+    plan.categories.push(category);
+    activeCategoryId = category.id;
+    editingCategoryId = category.id;
+    editingCategoryFallback = category.name;
+
+    setActiveTool("paint");
+    persistPlan();
+    renderCategoryList();
+    renderDashboard();
+    updateUi();
+    showSaveStatus(`Added ${category.name}`);
+  });
+}
+
+function createUniqueCategoryId(baseId) {
+  let candidate = baseId;
+  let index = 1;
+  const existingIds = new Set(plan.categories.map((category) => category.id));
+
+  while (existingIds.has(candidate)) {
+    candidate = `${baseId}-${index}`;
+    index += 1;
+  }
+
+  return candidate;
+}
+
+function getNextCategoryColor(index) {
+  const hue = (index * 47 + 210) % 360;
+  return hslToHex(hue, 28, 52);
+}
+
+function hslToHex(h, s, l) {
+  s /= 100;
+  l /= 100;
+
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  if (h < 60) {
+    r = c;
+    g = x;
+    b = 0;
+  } else if (h < 120) {
+    r = x;
+    g = c;
+    b = 0;
+  } else if (h < 180) {
+    r = 0;
+    g = c;
+    b = x;
+  } else if (h < 240) {
+    r = 0;
+    g = x;
+    b = c;
+  } else if (h < 300) {
+    r = x;
+    g = 0;
+    b = c;
+  } else {
+    r = c;
+    g = 0;
+    b = x;
+  }
+
+  const toHex = (value) => {
+    const hex = Math.round((value + m) * 255).toString(16);
+    return hex.padStart(2, "0");
+  };
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
 function installMergeButton() {
   const toolGrid = document.querySelector(".tool-grid");
   const rotateButton = document.getElementById("rotateToolButton");
@@ -50,7 +145,7 @@ function installMergeButton() {
   button.id = "mergeToolButton";
   button.type = "button";
   button.className = "tool-button";
-  button.textContent = "Merge";
+  button.textContent = "⊕ Merge";
   button.title = "Merge selected zones";
   button.addEventListener("click", mergeSelectedZones);
 

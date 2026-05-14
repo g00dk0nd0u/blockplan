@@ -22,6 +22,7 @@
         </div>
 
         <div class="file-actions" aria-label="File actions">
+          <button id="clearButton" type="button">Clear Plan</button>
           <button id="saveJsonButton" type="button">Save JSON</button>
           <button id="loadJsonButton" type="button">Load JSON</button>
           <button id="exportPngButton" type="button">Export PNG</button>
@@ -31,7 +32,10 @@
 
       <aside class="left-sidebar panel">
         <section>
-          <h2>Categories</h2>
+          <div class="section-heading-row">
+            <h2>Categories</h2>
+            <button id="addCategoryButton" type="button" class="icon-button" title="Add category">＋</button>
+          </div>
           <div id="categoryList" class="category-list"></div>
         </section>
 
@@ -42,13 +46,7 @@
             <button id="copyToolButton" type="button" class="tool-button" data-tool="copy">⧉ Copy</button>
             <button id="cutToolButton" type="button" class="tool-button" data-tool="cut">🔪 Cut</button>
             <button id="rotateToolButton" type="button" class="tool-button" data-action="rotate">⟳ Rotate 90°</button>
-            <button id="clearButton" type="button" class="secondary-button">Clear Plan</button>
           </div>
-        </section>
-
-        <section class="help-copy">
-          <h2>Controls</h2>
-          <p>V Select / move. C Copy. X Cut. R Rotate selected zone. Space drag Pan. Wheel Zoom. Delete removes selected zone. Category click paints.</p>
         </section>
       </aside>
 
@@ -97,7 +95,8 @@
         </section>
       </aside>
     </div>
+
     <script src="app.js"></script>
-<script src="interaction-patch.js"></script>
+    <script src="interaction-patch.js"></script>
   </body>
 </html>

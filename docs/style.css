@@ -61,7 +61,7 @@ button:active {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 260px minmax(320px, 1fr) 340px;
+  grid-template-columns: 180px minmax(320px, 1fr) 340px;
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100vh;
   min-height: 620px;
@@ -74,7 +74,7 @@ button:active {
   display: grid;
   gap: 14px;
   grid-column: 1 / -1;
-  grid-template-columns: 260px 1fr auto;
+  grid-template-columns: 180px 1fr auto;
   padding: 0 14px;
   position: relative;
   z-index: 2;
@@ -116,13 +116,13 @@ button:active {
   grid-column: 3;
 }
 
-.file-actions button:first-of-type {
+#saveJsonButton {
   background: var(--accent);
   border-color: var(--accent);
   color: #ffffff;
 }
 
-.file-actions button:first-of-type:hover {
+#saveJsonButton:hover {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
@@ -131,7 +131,7 @@ button:active {
   background: var(--panel);
   box-shadow: var(--shadow);
   overflow: auto;
-  padding: 18px;
+  padding: 14px;
   z-index: 1;
 }
 
@@ -153,6 +153,28 @@ h2 {
   letter-spacing: 0.08em;
   margin: 0 0 12px;
   text-transform: uppercase;
+}
+
+.section-heading-row {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 12px;
+}
+
+.section-heading-row h2 {
+  margin: 0;
+}
+
+.icon-button {
+  align-items: center;
+  display: inline-flex;
+  font-size: 14px;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0;
+  width: 24px;
 }
 
 .category-list {
@@ -202,7 +224,11 @@ h2 {
   font-weight: 500;
   line-height: 1.2;
   min-width: 0;
+  overflow: hidden;
   padding: 2px 4px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
 }
 
 .category-name:hover {
@@ -429,7 +455,7 @@ h2 {
 
 @media (max-width: 920px) {
   .app-shell {
-    grid-template-columns: 220px minmax(320px, 1fr);
+    grid-template-columns: 180px minmax(320px, 1fr);
     grid-template-rows: auto minmax(520px, 1fr) auto;
     height: auto;
     min-height: 100vh;
