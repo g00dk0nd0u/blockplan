@@ -338,54 +338,178 @@ function drawZones() {
 function drawZonesOnContext(targetCtx, zones) {
   zones.forEach((zone) => {
     const category = categoryById(zone.categoryId);
-    const cellSet = new Set(zone.cellKeys);
     const isUnassigned = zone.categoryId === "unassigned";
+    const loops = buildZoneBoundaryLoops(zone.cellKeys);
+
+    if (!loops.length) {
+      return;
+    }
+
     targetCtx.save();
+    targetCtx.beginPath();
+    loops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+
     targetCtx.fillStyle = category.color;
     targetCtx.globalAlpha = isUnassigned ? 0.34 : 0.84;
-
-    zone.cellKeys.forEach((key) => {
-      const [x, y] = parseCellKey(key);
-      targetCtx.fillRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
-    });
+    targetCtx.fill("evenodd");
 
     targetCtx.globalAlpha = 1;
     targetCtx.strokeStyle = isUnassigned ? "rgba(100, 116, 139, 0.46)" : darkenColor(category.color, 0.24);
     targetCtx.lineWidth = isUnassigned ? 1.6 : 2.5;
     targetCtx.lineCap = "round";
     targetCtx.lineJoin = "round";
-    drawZoneOutline(targetCtx, zone.cellKeys, cellSet);
+    targetCtx.stroke();
     targetCtx.restore();
   });
 }
 
-function drawZoneOutline(targetCtx, cellKeys, cellSet) {
-  targetCtx.beginPath();
+function buildZoneBoundaryLoops(cellKeys) {
+  const cellSet = new Set(cellKeys);
+  const edges = [];
+
   cellKeys.forEach((key) => {
     const [x, y] = parseCellKey(key);
-    const left = x * CELL_PX;
-    const top = y * CELL_PX;
-    const right = left + CELL_PX;
-    const bottom = top + CELL_PX;
-
     if (!cellSet.has(cellKey(x, y - 1))) {
-      targetCtx.moveTo(left, top);
-      targetCtx.lineTo(right, top);
+      edges.push(createBoundaryEdge(x, y, x + 1, y, 0));
     }
     if (!cellSet.has(cellKey(x + 1, y))) {
-      targetCtx.moveTo(right, top);
-      targetCtx.lineTo(right, bottom);
+      edges.push(createBoundaryEdge(x + 1, y, x + 1, y + 1, 1));
     }
     if (!cellSet.has(cellKey(x, y + 1))) {
-      targetCtx.moveTo(right, bottom);
-      targetCtx.lineTo(left, bottom);
+      edges.push(createBoundaryEdge(x + 1, y + 1, x, y + 1, 2));
     }
     if (!cellSet.has(cellKey(x - 1, y))) {
-      targetCtx.moveTo(left, bottom);
-      targetCtx.lineTo(left, top);
+      edges.push(createBoundaryEdge(x, y + 1, x, y, 3));
     }
   });
-  targetCtx.stroke();
+
+  return orderBoundaryLoops(edges);
+}
+
+function createBoundaryEdge(startX, startY, endX, endY, dir) {
+  return {
+    id: `${startX},${startY}>${endX},${endY}`,
+    start: { x: startX, y: startY },
+    end: { x: endX, y: endY },
+    dir
+  };
+}
+
+function orderBoundaryLoops(edges) {
+  const edgesByStart = new Map();
+  const unused = new Set(edges.map((edge) => edge.id));
+  const edgeById = new Map(edges.map((edge) => [edge.id, edge]));
+  const loops = [];
+
+  edges.forEach((edge) => {
+    const key = pointKey(edge.start);
+    if (!edgesByStart.has(key)) {
+      edgesByStart.set(key, []);
+    }
+    edgesByStart.get(key).push(edge);
+  });
+
+  edges.forEach((edge) => {
+    if (!unused.has(edge.id)) {
+      return;
+    }
+
+    const loop = [edge.start];
+    let current = edge;
+    let guard = 0;
+
+    while (current && unused.has(current.id) && guard < edges.length + 4) {
+      unused.delete(current.id);
+      loop.push(current.end);
+
+      if (pointKey(current.end) === pointKey(loop[0])) {
+        break;
+      }
+
+      const next = chooseNextBoundaryEdge(current, edgesByStart.get(pointKey(current.end)) || [], unused);
+      current = next ? edgeById.get(next.id) : null;
+      guard += 1;
+    }
+
+    const cleanLoop = simplifyBoundaryLoop(loop);
+    if (cleanLoop.length >= 4) {
+      loops.push(cleanLoop);
+    }
+  });
+
+  return loops;
+}
+
+function chooseNextBoundaryEdge(current, candidates, unused) {
+  const available = candidates.filter((edge) => unused.has(edge.id));
+  if (!available.length) {
+    return null;
+  }
+
+  const turnPreference = [1, 0, 3, 2];
+  return available.sort((a, b) => {
+    const aTurn = (a.dir - current.dir + 4) % 4;
+    const bTurn = (b.dir - current.dir + 4) % 4;
+    return turnPreference.indexOf(aTurn) - turnPreference.indexOf(bTurn);
+  })[0];
+}
+
+function simplifyBoundaryLoop(loop) {
+  const openLoop = loop.slice(0, -1);
+  const simplified = openLoop.filter((point, index) => {
+    const previous = openLoop[(index - 1 + openLoop.length) % openLoop.length];
+    const next = openLoop[(index + 1) % openLoop.length];
+    const sameX = previous.x === point.x && point.x === next.x;
+    const sameY = previous.y === point.y && point.y === next.y;
+    return !sameX && !sameY;
+  });
+  return simplified;
+}
+
+function addRoundedLoopToPath(targetCtx, loop) {
+  const points = loop.map((point) => ({
+    x: point.x * CELL_PX,
+    y: point.y * CELL_PX
+  }));
+  const radius = CELL_PX * 0.22;
+
+  points.forEach((point, index) => {
+    const previous = points[(index - 1 + points.length) % points.length];
+    const next = points[(index + 1) % points.length];
+    const previousDistance = distance(point, previous);
+    const nextDistance = distance(point, next);
+    const cornerRadius = Math.min(radius, previousDistance / 2 - 0.01, nextDistance / 2 - 0.01);
+    const start = pointAlong(point, previous, cornerRadius);
+    const end = pointAlong(point, next, cornerRadius);
+
+    if (index === 0) {
+      targetCtx.moveTo(start.x, start.y);
+    } else {
+      targetCtx.lineTo(start.x, start.y);
+    }
+    targetCtx.quadraticCurveTo(point.x, point.y, end.x, end.y);
+  });
+  targetCtx.closePath();
+}
+
+function pointAlong(from, to, distancePx) {
+  const total = distance(from, to);
+  if (!total) {
+    return { ...from };
+  }
+  const ratio = distancePx / total;
+  return {
+    x: from.x + (to.x - from.x) * ratio,
+    y: from.y + (to.y - from.y) * ratio
+  };
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function pointKey(point) {
+  return `${point.x},${point.y}`;
 }
 
 function drawGrid(rect) {
