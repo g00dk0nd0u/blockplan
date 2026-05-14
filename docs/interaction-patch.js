@@ -505,9 +505,9 @@ function commitGridEdgeSplit() {
   });
 
   if (didSplit && lastZoneId) {
-    selectedZoneSignature = zoneSignature(lastZoneId);
+    selectedZoneSignature = null;
     patchSelectedZoneIds.clear();
-    patchSelectedZoneIds.add(lastZoneId);
+    patchSplitDraft = null;
     persistPlan();
     updateUi();
   } else {
