@@ -243,8 +243,8 @@ function draw() {
   const rect = canvas.getBoundingClientRect();
   ctx.clearRect(0, 0, rect.width, rect.height);
   drawBackground(rect);
-  drawCells();
   drawGrid(rect);
+  drawZones();
   updateZoomStatus();
 }
 
@@ -253,21 +253,64 @@ function drawBackground(rect) {
   ctx.fillRect(0, 0, rect.width, rect.height);
 }
 
-function drawCells() {
+function drawZones() {
   ctx.save();
   ctx.translate(view.panX, view.panY);
   ctx.scale(view.zoom, view.zoom);
-
-  Object.entries(plan.cells).forEach(([key, value]) => {
-    const [x, y] = parseCellKey(key);
-    const category = categoryById(value.categoryId);
-    ctx.fillStyle = category.color;
-    ctx.globalAlpha = value.categoryId === "unassigned" ? 0.6 : 0.82;
-    ctx.fillRect(x * CELL_PX + 1, y * CELL_PX + 1, CELL_PX - 2, CELL_PX - 2);
-  });
-
+  drawZonesOnContext(ctx, calculateZones());
   ctx.restore();
-  ctx.globalAlpha = 1;
+}
+
+function drawZonesOnContext(targetCtx, zones) {
+  zones.forEach((zone) => {
+    const category = categoryById(zone.categoryId);
+    const cellSet = new Set(zone.cellKeys);
+    targetCtx.save();
+    targetCtx.fillStyle = category.color;
+    targetCtx.globalAlpha = zone.categoryId === "unassigned" ? 0.58 : 0.84;
+
+    zone.cellKeys.forEach((key) => {
+      const [x, y] = parseCellKey(key);
+      targetCtx.fillRect(x * CELL_PX, y * CELL_PX, CELL_PX, CELL_PX);
+    });
+
+    targetCtx.globalAlpha = 1;
+    targetCtx.strokeStyle = darkenColor(category.color, 0.24);
+    targetCtx.lineWidth = 2.5;
+    targetCtx.lineCap = "round";
+    targetCtx.lineJoin = "round";
+    drawZoneOutline(targetCtx, zone.cellKeys, cellSet);
+    targetCtx.restore();
+  });
+}
+
+function drawZoneOutline(targetCtx, cellKeys, cellSet) {
+  targetCtx.beginPath();
+  cellKeys.forEach((key) => {
+    const [x, y] = parseCellKey(key);
+    const left = x * CELL_PX;
+    const top = y * CELL_PX;
+    const right = left + CELL_PX;
+    const bottom = top + CELL_PX;
+
+    if (!cellSet.has(cellKey(x, y - 1))) {
+      targetCtx.moveTo(left, top);
+      targetCtx.lineTo(right, top);
+    }
+    if (!cellSet.has(cellKey(x + 1, y))) {
+      targetCtx.moveTo(right, top);
+      targetCtx.lineTo(right, bottom);
+    }
+    if (!cellSet.has(cellKey(x, y + 1))) {
+      targetCtx.moveTo(right, bottom);
+      targetCtx.lineTo(left, bottom);
+    }
+    if (!cellSet.has(cellKey(x - 1, y))) {
+      targetCtx.moveTo(left, bottom);
+      targetCtx.lineTo(left, top);
+    }
+  });
+  targetCtx.stroke();
 }
 
 function drawGrid(rect) {
@@ -500,28 +543,8 @@ function exportPng() {
   exportCtx.fillStyle = "#ffffff";
   exportCtx.fillRect(0, 0, width, height);
   exportCtx.translate(padding - bounds.minX * CELL_PX, padding - bounds.minY * CELL_PX);
-
-  Object.entries(plan.cells).forEach(([key, value]) => {
-    const [x, y] = parseCellKey(key);
-    const category = categoryById(value.categoryId);
-    exportCtx.fillStyle = category.color;
-    exportCtx.globalAlpha = value.categoryId === "unassigned" ? 0.6 : 0.86;
-    exportCtx.fillRect(x * CELL_PX + 1, y * CELL_PX + 1, CELL_PX - 2, CELL_PX - 2);
-  });
-
-  exportCtx.globalAlpha = 1;
-  exportCtx.beginPath();
-  exportCtx.strokeStyle = "#d3dce7";
-  exportCtx.lineWidth = 1;
-  for (let x = bounds.minX; x <= bounds.maxX + 1; x += 1) {
-    exportCtx.moveTo(x * CELL_PX, bounds.minY * CELL_PX);
-    exportCtx.lineTo(x * CELL_PX, (bounds.maxY + 1) * CELL_PX);
-  }
-  for (let y = bounds.minY; y <= bounds.maxY + 1; y += 1) {
-    exportCtx.moveTo(bounds.minX * CELL_PX, y * CELL_PX);
-    exportCtx.lineTo((bounds.maxX + 1) * CELL_PX, y * CELL_PX);
-  }
-  exportCtx.stroke();
+  drawExportGrid(exportCtx, bounds);
+  drawZonesOnContext(exportCtx, calculateZones());
 
   exportCanvas.toBlob((blob) => {
     if (blob) {
@@ -529,6 +552,21 @@ function exportPng() {
       showSaveStatus("PNG exported");
     }
   }, "image/png");
+}
+
+function drawExportGrid(targetCtx, bounds) {
+  targetCtx.beginPath();
+  targetCtx.strokeStyle = "#e0e7ef";
+  targetCtx.lineWidth = 1;
+  for (let x = bounds.minX; x <= bounds.maxX + 1; x += 1) {
+    targetCtx.moveTo(x * CELL_PX, bounds.minY * CELL_PX);
+    targetCtx.lineTo(x * CELL_PX, (bounds.maxY + 1) * CELL_PX);
+  }
+  for (let y = bounds.minY; y <= bounds.maxY + 1; y += 1) {
+    targetCtx.moveTo(bounds.minX * CELL_PX, y * CELL_PX);
+    targetCtx.lineTo((bounds.maxX + 1) * CELL_PX, y * CELL_PX);
+  }
+  targetCtx.stroke();
 }
 
 function getCellBounds() {
@@ -597,6 +635,15 @@ function cellKey(x, y) {
 
 function parseCellKey(key) {
   return key.split(",").map(Number);
+}
+
+function darkenColor(hex, amount) {
+  const cleanHex = hex.replace("#", "");
+  const value = Number.parseInt(cleanHex, 16);
+  const r = Math.max(0, Math.floor(((value >> 16) & 255) * (1 - amount)));
+  const g = Math.max(0, Math.floor(((value >> 8) & 255) * (1 - amount)));
+  const b = Math.max(0, Math.floor((value & 255) * (1 - amount)));
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 function clamp(value, min, max) {
