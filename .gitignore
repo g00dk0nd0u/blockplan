@@ -1,0 +1,14 @@
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+
+# Local editor state
+.vscode/
+.idea/
+
+# Generated exports
+downloads/
+exports/
+.playwright-cli/

@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BlockPlan</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%232563eb'/%3E%3Cpath d='M16 32h32M32 16v32' stroke='white' stroke-width='6'/%3E%3C/svg%3E">
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="top-bar">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"></div>
+          <div>
+            <h1>BlockPlan</h1>
+            <p>Fast pre-BIM zoning planner</p>
+          </div>
+        </div>
+
+        <label class="module-control">
+          <span>Module</span>
+          <select id="moduleSize">
+            <option value="300">300 mm</option>
+            <option value="600">600 mm</option>
+            <option value="1200">1200 mm</option>
+            <option value="1800">1800 mm</option>
+            <option value="2400">2400 mm</option>
+            <option value="3600" selected>3600 mm</option>
+            <option value="4800">4800 mm</option>
+            <option value="7200">7200 mm</option>
+            <option value="9600">9600 mm</option>
+          </select>
+        </label>
+
+        <div class="file-actions" aria-label="File actions">
+          <button id="saveJsonButton" type="button">Save JSON</button>
+          <button id="loadJsonButton" type="button">Load JSON</button>
+          <button id="exportPngButton" type="button">Export PNG</button>
+          <input id="loadJsonInput" type="file" accept="application/json,.json" hidden>
+        </div>
+      </header>
+
+      <aside class="left-sidebar panel">
+        <section>
+          <h2>Categories</h2>
+          <div id="categoryList" class="category-list"></div>
+        </section>
+
+        <section>
+          <h2>Tools</h2>
+          <div class="tool-grid">
+            <button id="clearButton" type="button" class="secondary-button">Clear Plan</button>
+            <button id="resetViewButton" type="button" class="secondary-button">Reset View</button>
+          </div>
+        </section>
+
+        <section class="help-copy">
+          <h2>Controls</h2>
+          <p>Click or drag to paint cells. Mouse wheel zooms. Middle mouse or Space + drag pans.</p>
+        </section>
+      </aside>
+
+      <main class="canvas-panel" aria-label="Planning canvas">
+        <canvas id="planningCanvas"></canvas>
+        <div class="canvas-status">
+          <span id="zoomStatus">100%</span>
+          <span id="cellStatus">Cell 0, 0</span>
+        </div>
+      </main>
+
+      <aside class="right-sidebar panel">
+        <section>
+          <h2>Dashboard</h2>
+          <div id="dashboard" class="dashboard"></div>
+        </section>
+
+        <section>
+          <h2>Project Settings</h2>
+          <dl class="settings-list">
+            <div>
+              <dt>Module size</dt>
+              <dd id="moduleReadout">3600 mm</dd>
+            </div>
+            <div>
+              <dt>Cell area</dt>
+              <dd id="cellAreaReadout">12.96 sqm</dd>
+            </div>
+            <div>
+              <dt>Saved state</dt>
+              <dd id="saveStatus">Ready</dd>
+            </div>
+          </dl>
+        </section>
+      </aside>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
