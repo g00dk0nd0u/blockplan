@@ -74,7 +74,7 @@ button:active {
   display: grid;
   gap: 14px;
   grid-column: 1 / -1;
-  grid-template-columns: 260px minmax(180px, 1fr) auto;
+  grid-template-columns: 260px 1fr auto;
   padding: 0 14px;
   position: relative;
   z-index: 2;
@@ -110,29 +110,10 @@ button:active {
   margin: 0;
 }
 
-.module-control {
-  align-items: center;
-  color: var(--muted);
-  display: flex;
-  font-size: 12px;
-  gap: 8px;
-  justify-self: start;
-}
-
-.module-control select {
-  appearance: none;
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius);
-  color: var(--text);
-  min-height: 30px;
-  min-width: 132px;
-  padding: 0 28px 0 9px;
-}
-
 .file-actions {
   display: flex;
   gap: 6px;
+  grid-column: 3;
 }
 
 .file-actions button:first-of-type {
@@ -434,6 +415,18 @@ h2 {
   text-align: right;
 }
 
+.settings-select {
+  appearance: none;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 12px;
+  min-height: 28px;
+  min-width: 124px;
+  padding: 0 26px 0 8px;
+}
+
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: 220px minmax(320px, 1fr);
@@ -449,6 +442,7 @@ h2 {
 
   .file-actions {
     flex-wrap: wrap;
+    grid-column: 1;
   }
 
   .right-sidebar {

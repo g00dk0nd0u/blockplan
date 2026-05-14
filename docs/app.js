@@ -3,9 +3,9 @@
 const STORAGE_KEY = "blockplan.currentPlan.v1";
 const CELL_PX = 36;
 const CANVAS_BACKGROUND = "#E8E5E0";
-const GRID_LINE = "rgba(160, 150, 140, 0.30)";
-const GRID_LINE_SOFT = "rgba(160, 150, 140, 0.20)";
-const TOOLS = ["select", "paint", "copy"];
+const GRID_DOT = "rgba(126, 116, 104, 0.36)";
+const GRID_DOT_SOFT = "rgba(126, 116, 104, 0.22)";
+const TOOLS = ["select", "paint", "copy", "cut"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
@@ -35,6 +35,8 @@ let editingCategoryFallback = "";
 let activeTool = "select";
 let selectedZoneSignature = null;
 let transformDraft = null;
+let paintStrokeZoneId = null;
+let cutDraft = null;
 
 const view = {
   zoom: 1,
@@ -47,7 +49,6 @@ const ctx = canvas.getContext("2d");
 const categoryList = document.getElementById("categoryList");
 const dashboard = document.getElementById("dashboard");
 const moduleSizeSelect = document.getElementById("moduleSize");
-const moduleReadout = document.getElementById("moduleReadout");
 const cellAreaReadout = document.getElementById("cellAreaReadout");
 const saveStatus = document.getElementById("saveStatus");
 const zoomStatus = document.getElementById("zoomStatus");
@@ -59,7 +60,9 @@ function clonePlan(source) {
     version: source.version || 1,
     moduleSizeMm: Number(source.moduleSizeMm) || 3600,
     categories: source.categories ? source.categories.map((item) => ({ ...item })) : categories,
-    cells: source.cells ? { ...source.cells } : {}
+    cells: source.cells
+      ? Object.fromEntries(Object.entries(source.cells).map(([key, cell]) => [key, { ...cell }]))
+      : {}
   };
 }
 
@@ -93,7 +96,6 @@ function bindEvents() {
   document.getElementById("loadJsonButton").addEventListener("click", () => loadJsonInput.click());
   document.getElementById("exportPngButton").addEventListener("click", exportPng);
   document.getElementById("clearButton").addEventListener("click", clearPlan);
-  document.getElementById("resetViewButton").addEventListener("click", resetView);
   document.getElementById("rotateToolButton").addEventListener("click", rotateSelectedZone);
   document.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -139,6 +141,8 @@ function bindEvents() {
       setActiveTool("select");
     } else if (key === "c") {
       setActiveTool("copy");
+    } else if (key === "x") {
+      setActiveTool("cut");
     } else if (key === "r") {
       rotateSelectedZone();
     }
@@ -279,6 +283,8 @@ function setActiveTool(tool) {
 function updateCanvasCursor() {
   if (activeTool === "paint") {
     canvas.style.cursor = "crosshair";
+  } else if (activeTool === "cut") {
+    canvas.style.cursor = "cell";
   } else if (activeTool === "select" || activeTool === "copy") {
     canvas.style.cursor = "grab";
   } else {
@@ -288,6 +294,8 @@ function updateCanvasCursor() {
 
 function cancelCurrentOperation() {
   transformDraft = null;
+  cutDraft = null;
+  paintStrokeZoneId = null;
   selectedZoneSignature = null;
   draw();
 }
@@ -313,12 +321,18 @@ function onPointerDown(event) {
     return;
   }
 
+  if (activeTool === "cut") {
+    startCutAtEvent(event);
+    return;
+  }
+
   if (activeTool !== "paint") {
     handleZoneToolPointerDown(event);
     return;
   }
 
   isPainting = true;
+  paintStrokeZoneId = createZoneId();
   paintAtEvent(event);
 }
 
@@ -337,6 +351,10 @@ function onPointerMove(event) {
     paintAtEvent(event);
   }
 
+  if (cutDraft) {
+    cutAtEvent(event);
+  }
+
   if (transformDraft) {
     updateTransformDraft(event);
   }
@@ -348,8 +366,13 @@ function endPointerAction(event) {
   }
 
   if (isPainting) {
+    paintStrokeZoneId = null;
     persistPlan();
     updateUi();
+  }
+
+  if (cutDraft) {
+    finishCut();
   }
 
   if (transformDraft) {
@@ -387,8 +410,64 @@ function paintAtEvent(event) {
     return;
   }
 
-  plan.cells[key] = { categoryId: activeCategoryId };
+  plan.cells[key] = { categoryId: activeCategoryId, zoneId: paintStrokeZoneId || createZoneId() };
   draw();
+  updateUi();
+}
+
+function startCutAtEvent(event) {
+  const cell = eventToCell(event);
+  const zone = findZoneAtCell(cell.x, cell.y);
+
+  if (!zone) {
+    selectedZoneSignature = null;
+    cutDraft = null;
+    draw();
+    return;
+  }
+
+  selectedZoneSignature = zone.signature;
+  cutDraft = {
+    sourceZoneId: zone.id,
+    newZoneId: createZoneId(),
+    categoryId: zone.categoryId,
+    touchedKeys: new Set()
+  };
+  cutAtEvent(event);
+}
+
+function cutAtEvent(event) {
+  if (!cutDraft) {
+    return;
+  }
+
+  const cell = eventToCell(event);
+  const key = cellKey(cell.x, cell.y);
+  const existing = plan.cells[key];
+  if (!existing || existing.zoneId !== cutDraft.sourceZoneId) {
+    return;
+  }
+
+  existing.zoneId = cutDraft.newZoneId;
+  cutDraft.touchedKeys.add(key);
+  selectedZoneSignature = zoneSignature(cutDraft.newZoneId);
+  draw();
+  updateUi();
+}
+
+function finishCut() {
+  const draft = cutDraft;
+  cutDraft = null;
+
+  if (!draft.touchedKeys.size) {
+    draw();
+    return;
+  }
+
+  splitZoneIntoConnectedComponents(draft.sourceZoneId);
+  splitZoneIntoConnectedComponents(draft.newZoneId);
+  selectedZoneSignature = zoneSignature(draft.newZoneId);
+  persistPlan();
   updateUi();
 }
 
@@ -409,6 +488,7 @@ function handleZoneToolPointerDown(event) {
     transformDraft = {
       mode: activeTool === "copy" ? "copy" : "move",
       categoryId: zone.categoryId,
+      zoneId: zone.id,
       originalKeys: [...zone.cellKeys],
       startCell: cell,
       dx: 0,
@@ -452,11 +532,12 @@ function commitTransformDraft() {
   if (draft.mode === "move") {
     draft.originalKeys.forEach((key) => delete plan.cells[key]);
   }
+  const destinationZoneId = draft.mode === "copy" ? createZoneId() : draft.zoneId;
   destinationKeys.forEach((key) => {
-    plan.cells[key] = { categoryId: draft.categoryId };
+    plan.cells[key] = { categoryId: draft.categoryId, zoneId: destinationZoneId };
   });
 
-  selectedZoneSignature = zoneSignature(destinationKeys, draft.categoryId);
+  selectedZoneSignature = zoneSignature(destinationZoneId);
   persistPlan();
   updateUi();
 }
@@ -503,12 +584,14 @@ function drawZones() {
   ctx.save();
   ctx.translate(view.panX, view.panY);
   ctx.scale(view.zoom, view.zoom);
-  drawZonesOnContext(ctx, calculateZones(), { showSelection: true });
+  drawZonesOnContext(ctx, calculateZones(), { showSelection: true, labelZoom: view.zoom });
   drawTransformDraft(ctx);
   ctx.restore();
 }
 
 function drawZonesOnContext(targetCtx, zones, options = {}) {
+  const labelItems = [];
+
   zones.forEach((zone) => {
     const category = categoryById(zone.categoryId);
     const isUnassigned = zone.categoryId === "unassigned";
@@ -523,12 +606,12 @@ function drawZonesOnContext(targetCtx, zones, options = {}) {
     loops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
 
     targetCtx.fillStyle = category.color;
-    targetCtx.globalAlpha = isUnassigned ? 0.34 : 0.84;
+    targetCtx.globalAlpha = isUnassigned ? 0.25 : 0.71;
     targetCtx.fill("evenodd");
 
     targetCtx.globalAlpha = 1;
-    targetCtx.strokeStyle = isUnassigned ? "rgba(110, 104, 96, 0.46)" : darkenColor(category.color, 0.24);
-    targetCtx.lineWidth = isUnassigned ? 1.6 : 2.5;
+    targetCtx.strokeStyle = isUnassigned ? "rgba(110, 104, 96, 0.42)" : darkenColor(category.color, 0.22);
+    targetCtx.lineWidth = isUnassigned ? 1 : 1.35;
     targetCtx.lineCap = "round";
     targetCtx.lineJoin = "round";
     targetCtx.stroke();
@@ -536,13 +619,18 @@ function drawZonesOnContext(targetCtx, zones, options = {}) {
     if (options.showSelection && zone.signature === selectedZoneSignature) {
       targetCtx.globalAlpha = 1;
       targetCtx.strokeStyle = "#1C1B19";
-      targetCtx.lineWidth = 3.5;
-      targetCtx.setLineDash([8, 5]);
+      targetCtx.lineWidth = 2.1;
+      targetCtx.setLineDash([6, 5]);
       targetCtx.stroke();
       targetCtx.setLineDash([]);
     }
 
+    labelItems.push({ zone, category });
     targetCtx.restore();
+  });
+
+  labelItems.forEach(({ zone, category }) => {
+    drawZoneLabel(targetCtx, zone, category, options);
   });
 }
 
@@ -568,6 +656,63 @@ function drawTransformDraft(targetCtx) {
   targetCtx.stroke();
   targetCtx.setLineDash([]);
   targetCtx.restore();
+}
+
+function drawZoneLabel(targetCtx, zone, category, options = {}) {
+  const zoom = options.labelZoom || 1;
+  const cellCount = zone.cellKeys.length;
+  const screenArea = cellCount * CELL_PX * CELL_PX * zoom * zoom;
+  if (zoom < 0.52 || cellCount < 2 || screenArea < 4200) {
+    return;
+  }
+
+  const bounds = getBoundsForKeys(zone.cellKeys);
+  const maxWidth = Math.max(0, bounds.width * CELL_PX - 12 / zoom);
+  if (maxWidth < 42 / zoom) {
+    return;
+  }
+
+  const anchor = getZoneLabelAnchor(zone.cellKeys);
+  const areaText = `${(cellCount * getCellAreaSqm()).toFixed(1)} ㎡`;
+  const fontSize = clamp(12 / zoom, 3, 12);
+  const lineHeight = fontSize * 1.2;
+
+  targetCtx.save();
+  targetCtx.font = `600 ${fontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  const categoryWidth = targetCtx.measureText(category.name).width;
+  targetCtx.font = `500 ${fontSize * 0.92}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  const areaWidth = targetCtx.measureText(areaText).width;
+  if (Math.max(categoryWidth, areaWidth) > maxWidth) {
+    targetCtx.restore();
+    return;
+  }
+
+  targetCtx.textAlign = "center";
+  targetCtx.textBaseline = "middle";
+  targetCtx.fillStyle = "rgba(42, 39, 35, 0.72)";
+  targetCtx.font = `600 ${fontSize}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  targetCtx.fillText(category.name, anchor.x, anchor.y - lineHeight * 0.48);
+  targetCtx.fillStyle = "rgba(42, 39, 35, 0.58)";
+  targetCtx.font = `500 ${fontSize * 0.92}px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  targetCtx.fillText(areaText, anchor.x, anchor.y + lineHeight * 0.58);
+  targetCtx.restore();
+}
+
+function getZoneLabelAnchor(cellKeys) {
+  const centers = cellKeys.map((key) => {
+    const [x, y] = parseCellKey(key);
+    return { x: (x + 0.5) * CELL_PX, y: (y + 0.5) * CELL_PX };
+  });
+  const centroid = centers.reduce(
+    (total, center) => ({ x: total.x + center.x, y: total.y + center.y }),
+    { x: 0, y: 0 }
+  );
+  centroid.x /= centers.length;
+  centroid.y /= centers.length;
+
+  return centers.reduce((nearest, center) => {
+    return distance(center, centroid) < distance(nearest, centroid) ? center : nearest;
+  }, centers[0]);
 }
 
 function buildZoneBoundaryLoops(cellKeys) {
@@ -721,32 +866,26 @@ function pointKey(point) {
 
 function drawGrid(rect) {
   const spacing = CELL_PX * view.zoom;
-  if (spacing < 6) {
+  if (spacing < 7) {
     return;
   }
 
   const startX = view.panX % spacing;
   const startY = view.panY % spacing;
-  ctx.beginPath();
-  ctx.strokeStyle = spacing < 18 ? GRID_LINE_SOFT : GRID_LINE;
-  ctx.lineWidth = 1;
+  const radius = clamp(spacing * 0.035, 0.7, 1.8);
+  ctx.fillStyle = spacing < 18 ? GRID_DOT_SOFT : GRID_DOT;
 
   for (let x = startX; x < rect.width; x += spacing) {
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, rect.height);
+    for (let y = startY; y < rect.height; y += spacing) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
-
-  for (let y = startY; y < rect.height; y += spacing) {
-    ctx.moveTo(0, y);
-    ctx.lineTo(rect.width, y);
-  }
-
-  ctx.stroke();
 }
 
 function updateUi() {
   moduleSizeSelect.value = String(plan.moduleSizeMm);
-  moduleReadout.textContent = `${plan.moduleSizeMm} mm`;
   cellAreaReadout.textContent = `${getCellAreaSqm().toFixed(2)} ㎡`;
   renderDashboard();
   draw();
@@ -817,44 +956,27 @@ function calculateDashboard() {
 }
 
 function calculateZones() {
-  const visited = new Set();
-  const zones = [];
+  const grouped = new Map();
 
-  Object.keys(plan.cells).forEach((startKey) => {
-    if (visited.has(startKey)) {
-      return;
+  Object.entries(plan.cells).forEach(([key, cell]) => {
+    const zoneId = cell.zoneId || createZoneId();
+    if (!cell.zoneId) {
+      cell.zoneId = zoneId;
     }
-
-    const startCell = plan.cells[startKey];
-    const zone = [];
-    const stack = [startKey];
-    visited.add(startKey);
-
-    while (stack.length) {
-      const key = stack.pop();
-      zone.push(key);
-      const [x, y] = parseCellKey(key);
-      neighbors(x, y).forEach((neighborKey) => {
-        if (visited.has(neighborKey)) {
-          return;
-        }
-        const neighbor = plan.cells[neighborKey];
-        if (neighbor && neighbor.categoryId === startCell.categoryId) {
-          visited.add(neighborKey);
-          stack.push(neighborKey);
-        }
+    if (!grouped.has(zoneId)) {
+      grouped.set(zoneId, {
+        id: zoneId,
+        categoryId: cell.categoryId,
+        cellKeys: []
       });
     }
-
-    zones.push({
-      id: `${startCell.categoryId}-${zones.length + 1}`,
-      categoryId: startCell.categoryId,
-      cellKeys: zone,
-      signature: zoneSignature(zone, startCell.categoryId)
-    });
+    grouped.get(zoneId).cellKeys.push(key);
   });
 
-  return zones;
+  return [...grouped.values()].map((zone) => ({
+    ...zone,
+    signature: zoneSignature(zone.id)
+  }));
 }
 
 function findZoneAtCell(x, y) {
@@ -901,9 +1023,9 @@ function rotateSelectedZone() {
 
   zone.cellKeys.forEach((key) => delete plan.cells[key]);
   rotatedKeys.forEach((key) => {
-    plan.cells[key] = { categoryId: zone.categoryId };
+    plan.cells[key] = { categoryId: zone.categoryId, zoneId: zone.id };
   });
-  selectedZoneSignature = zoneSignature(rotatedKeys, zone.categoryId);
+  selectedZoneSignature = zoneSignature(zone.id);
   persistPlan();
   updateUi();
 }
@@ -934,8 +1056,55 @@ function canPlaceCellKeys(keys, ignoreKeys) {
   return keys.every((key) => !plan.cells[key] || ignoreKeys.has(key));
 }
 
-function zoneSignature(keys, categoryId) {
-  return `${categoryId}:${[...keys].sort().join("|")}`;
+function createZoneId() {
+  return `z-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function splitZoneIntoConnectedComponents(zoneId) {
+  const zoneKeys = Object.keys(plan.cells).filter((key) => plan.cells[key].zoneId === zoneId);
+  const visited = new Set();
+  let componentIndex = 0;
+
+  zoneKeys.forEach((startKey) => {
+    if (visited.has(startKey)) {
+      return;
+    }
+
+    const component = [];
+    const startCell = plan.cells[startKey];
+    const stack = [startKey];
+    visited.add(startKey);
+
+    while (stack.length) {
+      const key = stack.pop();
+      component.push(key);
+      const [x, y] = parseCellKey(key);
+      neighbors(x, y).forEach((neighborKey) => {
+        if (visited.has(neighborKey)) {
+          return;
+        }
+        const neighbor = plan.cells[neighborKey];
+        if (
+          neighbor &&
+          neighbor.zoneId === zoneId &&
+          neighbor.categoryId === startCell.categoryId
+        ) {
+          visited.add(neighborKey);
+          stack.push(neighborKey);
+        }
+      });
+    }
+
+    const componentZoneId = componentIndex === 0 ? zoneId : createZoneId();
+    component.forEach((key) => {
+      plan.cells[key].zoneId = componentZoneId;
+    });
+    componentIndex += 1;
+  });
+}
+
+function zoneSignature(zoneId) {
+  return `zone:${zoneId}`;
 }
 
 function neighbors(x, y) {
@@ -983,14 +1152,54 @@ function normalizePlan(source) {
   Object.keys(normalized.cells).forEach((key) => {
     if (!/^-?\d+,-?\d+$/.test(key) || !normalized.cells[key].categoryId) {
       delete normalized.cells[key];
+      return;
+    }
+    if (typeof normalized.cells[key].zoneId !== "string" || !normalized.cells[key].zoneId.trim()) {
+      delete normalized.cells[key].zoneId;
     }
   });
   normalized.categories = normalized.categories.map((category) => ({
     ...category,
     color: defaultCategoryColors.get(category.id) || category.color
   }));
+  assignMissingZoneIds(normalized);
 
   return normalized;
+}
+
+function assignMissingZoneIds(targetPlan) {
+  const visited = new Set();
+
+  Object.keys(targetPlan.cells).forEach((startKey) => {
+    if (visited.has(startKey) || targetPlan.cells[startKey].zoneId) {
+      return;
+    }
+
+    const startCell = targetPlan.cells[startKey];
+    const zoneId = createZoneId();
+    const stack = [startKey];
+    visited.add(startKey);
+
+    while (stack.length) {
+      const key = stack.pop();
+      targetPlan.cells[key].zoneId = zoneId;
+      const [x, y] = parseCellKey(key);
+      neighbors(x, y).forEach((neighborKey) => {
+        if (visited.has(neighborKey)) {
+          return;
+        }
+        const neighbor = targetPlan.cells[neighborKey];
+        if (
+          neighbor &&
+          !neighbor.zoneId &&
+          neighbor.categoryId === startCell.categoryId
+        ) {
+          visited.add(neighborKey);
+          stack.push(neighborKey);
+        }
+      });
+    }
+  });
 }
 
 function saveJson() {
@@ -1052,18 +1261,15 @@ function exportPng() {
 }
 
 function drawExportGrid(targetCtx, bounds) {
-  targetCtx.beginPath();
-  targetCtx.strokeStyle = GRID_LINE;
-  targetCtx.lineWidth = 1;
+  targetCtx.fillStyle = GRID_DOT_SOFT;
+  const radius = 1.2;
   for (let x = bounds.minX; x <= bounds.maxX + 1; x += 1) {
-    targetCtx.moveTo(x * CELL_PX, bounds.minY * CELL_PX);
-    targetCtx.lineTo(x * CELL_PX, (bounds.maxY + 1) * CELL_PX);
+    for (let y = bounds.minY; y <= bounds.maxY + 1; y += 1) {
+      targetCtx.beginPath();
+      targetCtx.arc(x * CELL_PX, y * CELL_PX, radius, 0, Math.PI * 2);
+      targetCtx.fill();
+    }
   }
-  for (let y = bounds.minY; y <= bounds.maxY + 1; y += 1) {
-    targetCtx.moveTo(bounds.minX * CELL_PX, y * CELL_PX);
-    targetCtx.lineTo((bounds.maxX + 1) * CELL_PX, y * CELL_PX);
-  }
-  targetCtx.stroke();
 }
 
 function getCellBounds() {
@@ -1072,6 +1278,10 @@ function getCellBounds() {
     return { minX: -10, minY: -7, maxX: 10, maxY: 7, width: 21, height: 15 };
   }
 
+  return getBoundsForKeys(keys);
+}
+
+function getBoundsForKeys(keys) {
   const coords = keys.map(parseCellKey);
   const xs = coords.map(([x]) => x);
   const ys = coords.map(([, y]) => y);

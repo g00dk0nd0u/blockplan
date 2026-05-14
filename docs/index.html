@@ -21,21 +21,6 @@
           </div>
         </div>
 
-        <label class="module-control">
-          <span>Module</span>
-          <select id="moduleSize">
-            <option value="300">300 mm</option>
-            <option value="600">600 mm</option>
-            <option value="1200">1200 mm</option>
-            <option value="1800">1800 mm</option>
-            <option value="2400">2400 mm</option>
-            <option value="3600" selected>3600 mm</option>
-            <option value="4800">4800 mm</option>
-            <option value="7200">7200 mm</option>
-            <option value="9600">9600 mm</option>
-          </select>
-        </label>
-
         <div class="file-actions" aria-label="File actions">
           <button id="saveJsonButton" type="button">Save JSON</button>
           <button id="loadJsonButton" type="button">Load JSON</button>
@@ -55,15 +40,15 @@
           <div class="tool-grid">
             <button id="selectToolButton" type="button" class="tool-button" data-tool="select">↖ Select / Move</button>
             <button id="copyToolButton" type="button" class="tool-button" data-tool="copy">⧉ Copy</button>
+            <button id="cutToolButton" type="button" class="tool-button" data-tool="cut">🔪 Cut</button>
             <button id="rotateToolButton" type="button" class="tool-button" data-action="rotate">⟳ Rotate 90°</button>
             <button id="clearButton" type="button" class="secondary-button">Clear Plan</button>
-            <button id="resetViewButton" type="button" class="secondary-button">Reset View</button>
           </div>
         </section>
 
         <section class="help-copy">
           <h2>Controls</h2>
-          <p>V Select / move. C Copy. R Rotate selected zone. Space drag Pan. Wheel Zoom. Delete removes selected zone. Category click paints.</p>
+          <p>V Select / move. C Copy. X Cut. R Rotate selected zone. Space drag Pan. Wheel Zoom. Delete removes selected zone. Category click paints.</p>
         </section>
       </aside>
 
@@ -86,7 +71,19 @@
           <dl class="settings-list">
             <div>
               <dt>Module size</dt>
-              <dd id="moduleReadout">3600 mm</dd>
+              <dd>
+                <select id="moduleSize" class="settings-select" aria-label="Module size">
+                  <option value="300">300 mm</option>
+                  <option value="600">600 mm</option>
+                  <option value="1200">1200 mm</option>
+                  <option value="1800">1800 mm</option>
+                  <option value="2400">2400 mm</option>
+                  <option value="3600" selected>3600 mm</option>
+                  <option value="4800">4800 mm</option>
+                  <option value="7200">7200 mm</option>
+                  <option value="9600">9600 mm</option>
+                </select>
+              </dd>
             </div>
             <div>
               <dt>Cell area</dt>
