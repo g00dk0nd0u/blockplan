@@ -2,6 +2,7 @@
 
 const STORAGE_KEY = "blockplan.currentPlan.v1";
 const CELL_PX = 36;
+const TOOLS = ["select", "paint", "move", "copy", "rotate"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#cbd5e1" },
@@ -27,6 +28,9 @@ let isSpaceDown = false;
 let lastPointer = { x: 0, y: 0 };
 let editingCategoryId = null;
 let editingCategoryFallback = "";
+let activeTool = "paint";
+let selectedZoneSignature = null;
+let transformDraft = null;
 
 const view = {
   zoom: 1,
@@ -62,6 +66,7 @@ function categoryById(categoryId) {
 function setup() {
   restorePlan();
   renderCategoryList();
+  renderToolButtons();
   bindEvents();
   resizeCanvas();
   updateUi();
@@ -85,6 +90,17 @@ function bindEvents() {
   document.getElementById("exportPngButton").addEventListener("click", exportPng);
   document.getElementById("clearButton").addEventListener("click", clearPlan);
   document.getElementById("resetViewButton").addEventListener("click", resetView);
+  document.querySelectorAll("[data-tool]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const tool = button.dataset.tool;
+      if (tool === "rotate") {
+        setActiveTool("rotate");
+        rotateSelectedZone();
+        return;
+      }
+      setActiveTool(tool);
+    });
+  });
   loadJsonInput.addEventListener("change", loadJson);
 
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
@@ -95,9 +111,38 @@ function bindEvents() {
   canvas.addEventListener("wheel", onWheel, { passive: false });
 
   window.addEventListener("keydown", (event) => {
+    if (isEditingText()) {
+      return;
+    }
     if (event.code === "Space") {
       event.preventDefault();
       isSpaceDown = true;
+      return;
+    }
+
+    if (event.key === "Escape") {
+      cancelCurrentOperation();
+      return;
+    }
+
+    if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      deleteSelectedZone();
+      return;
+    }
+
+    const key = event.key.toLowerCase();
+    if (key === "v") {
+      setActiveTool("select");
+    } else if (key === "b") {
+      setActiveTool("paint");
+    } else if (key === "m") {
+      setActiveTool("move");
+    } else if (key === "c") {
+      setActiveTool("copy");
+    } else if (key === "r") {
+      setActiveTool("rotate");
+      rotateSelectedZone();
     }
   });
 
@@ -106,6 +151,7 @@ function bindEvents() {
       isSpaceDown = false;
       if (!isPanning) {
         canvas.classList.remove("is-panning");
+        updateCanvasCursor();
       }
     }
   });
@@ -213,6 +259,43 @@ function finishCategoryRename() {
   renderDashboard();
 }
 
+function renderToolButtons() {
+  document.querySelectorAll("[data-tool]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.tool === activeTool);
+  });
+}
+
+function setActiveTool(tool) {
+  if (!TOOLS.includes(tool)) {
+    return;
+  }
+  activeTool = tool;
+  transformDraft = null;
+  renderToolButtons();
+  updateCanvasCursor();
+}
+
+function updateCanvasCursor() {
+  if (activeTool === "paint") {
+    canvas.style.cursor = "crosshair";
+  } else if (activeTool === "move" || activeTool === "copy") {
+    canvas.style.cursor = "grab";
+  } else {
+    canvas.style.cursor = "default";
+  }
+}
+
+function cancelCurrentOperation() {
+  transformDraft = null;
+  selectedZoneSignature = null;
+  draw();
+}
+
+function isEditingText() {
+  const active = document.activeElement;
+  return active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+}
+
 function onPointerDown(event) {
   canvas.setPointerCapture(event.pointerId);
   lastPointer = { x: event.clientX, y: event.clientY };
@@ -221,10 +304,16 @@ function onPointerDown(event) {
   if (shouldPan) {
     isPanning = true;
     canvas.classList.add("is-panning");
+    canvas.style.cursor = "grabbing";
     return;
   }
 
   if (event.button !== 0) {
+    return;
+  }
+
+  if (activeTool !== "paint") {
+    handleZoneToolPointerDown(event);
     return;
   }
 
@@ -246,6 +335,10 @@ function onPointerMove(event) {
   if (isPainting) {
     paintAtEvent(event);
   }
+
+  if (transformDraft) {
+    updateTransformDraft(event);
+  }
 }
 
 function endPointerAction(event) {
@@ -258,10 +351,15 @@ function endPointerAction(event) {
     updateUi();
   }
 
+  if (transformDraft) {
+    commitTransformDraft();
+  }
+
   isPainting = false;
   isPanning = false;
   if (!isSpaceDown) {
     canvas.classList.remove("is-panning");
+    updateCanvasCursor();
   }
 }
 
@@ -280,12 +378,7 @@ function onWheel(event) {
 }
 
 function paintAtEvent(event) {
-  const rect = canvas.getBoundingClientRect();
-  const world = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
-  const cell = {
-    x: Math.floor(world.x / CELL_PX),
-    y: Math.floor(world.y / CELL_PX)
-  };
+  const cell = eventToCell(event);
   const key = cellKey(cell.x, cell.y);
   const existing = plan.cells[key];
 
@@ -296,6 +389,89 @@ function paintAtEvent(event) {
   plan.cells[key] = { categoryId: activeCategoryId };
   draw();
   updateUi();
+}
+
+function handleZoneToolPointerDown(event) {
+  const cell = eventToCell(event);
+  const zone = findZoneAtCell(cell.x, cell.y);
+
+  if (!zone) {
+    selectedZoneSignature = null;
+    transformDraft = null;
+    draw();
+    return;
+  }
+
+  selectedZoneSignature = zone.signature;
+
+  if (activeTool === "rotate") {
+    rotateSelectedZone();
+    return;
+  }
+
+  if (activeTool === "move" || activeTool === "copy") {
+    transformDraft = {
+      mode: activeTool,
+      categoryId: zone.categoryId,
+      originalKeys: [...zone.cellKeys],
+      startCell: cell,
+      dx: 0,
+      dy: 0,
+      isValid: true
+    };
+  }
+
+  draw();
+}
+
+function updateTransformDraft(event) {
+  const cell = eventToCell(event);
+  transformDraft.dx = cell.x - transformDraft.startCell.x;
+  transformDraft.dy = cell.y - transformDraft.startCell.y;
+  const destinationKeys = offsetCellKeys(transformDraft.originalKeys, transformDraft.dx, transformDraft.dy);
+  transformDraft.isValid = canPlaceCellKeys(
+    destinationKeys,
+    transformDraft.mode === "move" ? new Set(transformDraft.originalKeys) : new Set()
+  );
+  draw();
+}
+
+function commitTransformDraft() {
+  const draft = transformDraft;
+  transformDraft = null;
+
+  if (!draft.dx && !draft.dy) {
+    draw();
+    return;
+  }
+
+  const destinationKeys = offsetCellKeys(draft.originalKeys, draft.dx, draft.dy);
+  const ignoreKeys = draft.mode === "move" ? new Set(draft.originalKeys) : new Set();
+  if (!canPlaceCellKeys(destinationKeys, ignoreKeys)) {
+    showSaveStatus("Overlap blocked");
+    draw();
+    return;
+  }
+
+  if (draft.mode === "move") {
+    draft.originalKeys.forEach((key) => delete plan.cells[key]);
+  }
+  destinationKeys.forEach((key) => {
+    plan.cells[key] = { categoryId: draft.categoryId };
+  });
+
+  selectedZoneSignature = zoneSignature(destinationKeys, draft.categoryId);
+  persistPlan();
+  updateUi();
+}
+
+function eventToCell(event) {
+  const rect = canvas.getBoundingClientRect();
+  const world = screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+  return {
+    x: Math.floor(world.x / CELL_PX),
+    y: Math.floor(world.y / CELL_PX)
+  };
 }
 
 function screenToWorld(screenX, screenY) {
@@ -331,11 +507,12 @@ function drawZones() {
   ctx.save();
   ctx.translate(view.panX, view.panY);
   ctx.scale(view.zoom, view.zoom);
-  drawZonesOnContext(ctx, calculateZones());
+  drawZonesOnContext(ctx, calculateZones(), { showSelection: true });
+  drawTransformDraft(ctx);
   ctx.restore();
 }
 
-function drawZonesOnContext(targetCtx, zones) {
+function drawZonesOnContext(targetCtx, zones, options = {}) {
   zones.forEach((zone) => {
     const category = categoryById(zone.categoryId);
     const isUnassigned = zone.categoryId === "unassigned";
@@ -359,8 +536,42 @@ function drawZonesOnContext(targetCtx, zones) {
     targetCtx.lineCap = "round";
     targetCtx.lineJoin = "round";
     targetCtx.stroke();
+
+    if (options.showSelection && zone.signature === selectedZoneSignature) {
+      targetCtx.globalAlpha = 1;
+      targetCtx.strokeStyle = "#111827";
+      targetCtx.lineWidth = 3.5;
+      targetCtx.setLineDash([8, 5]);
+      targetCtx.stroke();
+      targetCtx.setLineDash([]);
+    }
+
     targetCtx.restore();
   });
+}
+
+function drawTransformDraft(targetCtx) {
+  if (!transformDraft || (!transformDraft.dx && !transformDraft.dy)) {
+    return;
+  }
+
+  const destinationKeys = offsetCellKeys(transformDraft.originalKeys, transformDraft.dx, transformDraft.dy);
+  const category = categoryById(transformDraft.categoryId);
+  const loops = buildZoneBoundaryLoops(destinationKeys);
+
+  targetCtx.save();
+  targetCtx.beginPath();
+  loops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+  targetCtx.fillStyle = category.color;
+  targetCtx.globalAlpha = transformDraft.isValid ? 0.38 : 0.16;
+  targetCtx.fill("evenodd");
+  targetCtx.globalAlpha = 1;
+  targetCtx.strokeStyle = transformDraft.isValid ? "#111827" : "#dc2626";
+  targetCtx.lineWidth = 3;
+  targetCtx.setLineDash([7, 5]);
+  targetCtx.stroke();
+  targetCtx.setLineDash([]);
+  targetCtx.restore();
 }
 
 function buildZoneBoundaryLoops(cellKeys) {
@@ -547,34 +758,37 @@ function updateUi() {
 
 function renderDashboard() {
   const stats = calculateDashboard();
-  dashboard.innerHTML = "";
+  const table = document.createElement("table");
+  table.className = "dashboard-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>色</th>
+        <th>Category</th>
+        <th class="number-cell">Area ㎡</th>
+        <th class="number-cell">Zones</th>
+        <th class="number-cell">Cells</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
 
   plan.categories.forEach((category) => {
     const categoryStats = stats[category.id] || { cellCount: 0, zoneCount: 0, areaSqm: 0 };
-    const row = document.createElement("article");
-    row.className = "dashboard-row";
+    const row = document.createElement("tr");
     row.innerHTML = `
-      <div class="dashboard-title">
-        <span class="category-swatch" style="background:${category.color}"></span>
-        <span>${category.name}</span>
-      </div>
-      <div class="dashboard-stats">
-        <div class="stat">
-          <span class="stat-label">Area ㎡</span>
-          <span class="stat-value">${categoryStats.areaSqm.toFixed(2)}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Zones</span>
-          <span class="stat-value">${categoryStats.zoneCount}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Cells</span>
-          <span class="stat-value">${categoryStats.cellCount}</span>
-        </div>
-      </div>
+      <td><span class="category-swatch" style="background:${category.color}"></span></td>
+      <td class="dashboard-category" title="${category.name}">${category.name}</td>
+      <td class="number-cell">${categoryStats.areaSqm.toFixed(2)}</td>
+      <td class="number-cell">${categoryStats.zoneCount}</td>
+      <td class="number-cell">${categoryStats.cellCount}</td>
     `;
-    dashboard.appendChild(row);
+    tbody.appendChild(row);
   });
+
+  dashboard.innerHTML = "";
+  dashboard.appendChild(table);
 }
 
 function calculateDashboard() {
@@ -639,11 +853,93 @@ function calculateZones() {
     zones.push({
       id: `${startCell.categoryId}-${zones.length + 1}`,
       categoryId: startCell.categoryId,
-      cellKeys: zone
+      cellKeys: zone,
+      signature: zoneSignature(zone, startCell.categoryId)
     });
   });
 
   return zones;
+}
+
+function findZoneAtCell(x, y) {
+  const key = cellKey(x, y);
+  return calculateZones().find((zone) => zone.cellKeys.includes(key)) || null;
+}
+
+function getSelectedZone() {
+  if (!selectedZoneSignature) {
+    return null;
+  }
+  return calculateZones().find((zone) => zone.signature === selectedZoneSignature) || null;
+}
+
+function deleteSelectedZone() {
+  const zone = getSelectedZone();
+  if (!zone) {
+    selectedZoneSignature = null;
+    draw();
+    return;
+  }
+
+  zone.cellKeys.forEach((key) => delete plan.cells[key]);
+  selectedZoneSignature = null;
+  transformDraft = null;
+  persistPlan();
+  updateUi();
+}
+
+function rotateSelectedZone() {
+  const zone = getSelectedZone();
+  if (!zone) {
+    showSaveStatus("No zone selected");
+    draw();
+    return;
+  }
+
+  const rotatedKeys = rotateCellKeysClockwise(zone.cellKeys);
+  if (!canPlaceCellKeys(rotatedKeys, new Set(zone.cellKeys))) {
+    showSaveStatus("Overlap blocked");
+    draw();
+    return;
+  }
+
+  zone.cellKeys.forEach((key) => delete plan.cells[key]);
+  rotatedKeys.forEach((key) => {
+    plan.cells[key] = { categoryId: zone.categoryId };
+  });
+  selectedZoneSignature = zoneSignature(rotatedKeys, zone.categoryId);
+  persistPlan();
+  updateUi();
+}
+
+function rotateCellKeysClockwise(keys) {
+  const coords = keys.map(parseCellKey);
+  const xs = coords.map(([x]) => x);
+  const ys = coords.map(([, y]) => y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+
+  return coords.map(([x, y]) => {
+    const rotatedX = minX + (y - minY);
+    const rotatedY = minY + (maxX - x);
+    return cellKey(rotatedX, rotatedY);
+  });
+}
+
+function offsetCellKeys(keys, dx, dy) {
+  return keys.map((key) => {
+    const [x, y] = parseCellKey(key);
+    return cellKey(x + dx, y + dy);
+  });
+}
+
+function canPlaceCellKeys(keys, ignoreKeys) {
+  return keys.every((key) => !plan.cells[key] || ignoreKeys.has(key));
+}
+
+function zoneSignature(keys, categoryId) {
+  return `${categoryId}:${[...keys].sort().join("|")}`;
 }
 
 function neighbors(x, y) {
@@ -713,6 +1009,8 @@ function loadJson(event) {
   reader.addEventListener("load", () => {
     try {
       plan = normalizePlan(JSON.parse(reader.result));
+      selectedZoneSignature = null;
+      transformDraft = null;
       activeCategoryId = plan.categories.some((item) => item.id === activeCategoryId)
         ? activeCategoryId
         : plan.categories[0].id;
@@ -796,6 +1094,8 @@ function clearPlan() {
     return;
   }
   plan.cells = {};
+  selectedZoneSignature = null;
+  transformDraft = null;
   persistPlan();
   updateUi();
 }
