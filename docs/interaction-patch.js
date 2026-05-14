@@ -743,9 +743,8 @@ function mergeSelectedZones() {
     });
   });
 
+  selectedZoneSignature = null;
   patchSelectedZoneIds.clear();
-  patchSelectedZoneIds.add(targetZoneId);
-  selectedZoneSignature = zoneSignature(targetZoneId);
 
   persistPlan();
   updateUi();
