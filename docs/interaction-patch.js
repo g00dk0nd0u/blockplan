@@ -376,7 +376,7 @@ function commitRectanglePaint() {
     }
   }
 
-  selectedZoneSignature = zoneSignature(draft.zoneId);
+  selectedZoneSignature = null;
   patchSelectedZoneIds.clear();
 
   persistPlan();
