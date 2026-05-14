@@ -7,7 +7,7 @@ BlockPlan is a plain HTML, CSS, and JavaScript pre-BIM zoning sketch tool. It sh
 ## Constraints
 
 - Do not add React, Vite, npm, bundlers, transpilers, or build steps.
-- The app must run by opening `index.html` locally.
+- The app must run by opening `docs/index.html` locally.
 - Keep the code readable and modular.
 - Prefer simple browser APIs over dependencies.
 - Use HTML Canvas for the planning surface.
