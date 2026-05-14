@@ -64,7 +64,16 @@ function installPatchKeyboardShortcuts() {
       if (isEditingText()) return;
 
       if (event.key === "Escape") {
+        patchPaintDraft = null;
+        patchSplitDraft = null;
+        transformDraft = null;
+        cutDraft = null;
+        paintStrokeZoneId = null;
+
+        selectedZoneSignature = null;
         patchSelectedZoneIds.clear();
+
+        setActiveTool("select");
         draw();
         return;
       }
