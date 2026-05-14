@@ -2,16 +2,22 @@
 
 // Interaction patch:
 // - rectangle paint
+// - merge paint into existing same-category zone
 // - continuous grid-edge split line
 // - improved label anchor
 // - Shift multi-select
 // - Merge zones
+// - selected zone category reassignment
+// - Cmd/Ctrl + Z undo
 // Loaded after app.js.
 
 let patchPaintDraft = null;
 let patchSplitDraft = null;
 let patchOriginalDraw = null;
+
 const patchSelectedZoneIds = new Set();
+const patchUndoStack = [];
+const PATCH_UNDO_LIMIT = 80;
 
 (function setupInteractionPatch() {
   if (!canvas || !ctx) return;
@@ -26,6 +32,7 @@ const patchSelectedZoneIds = new Set();
   installPatchKeyboardShortcuts();
   installBetterZoneLabelAnchor();
   installCategoryReassignHandler();
+  installUndoCaptureHandlers();
 
   canvas.addEventListener("pointerdown", onPatchPointerDown, true);
   canvas.addEventListener("pointermove", onPatchPointerMove, true);
@@ -77,6 +84,106 @@ function installPatchKeyboardShortcuts() {
     },
     true
   );
+}
+
+function installUndoCaptureHandlers() {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (isEditingText()) return;
+
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        undoLastAction();
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedZoneSignature) {
+        pushUndoState();
+      }
+
+      if (event.key.toLowerCase() === "r" && selectedZoneSignature) {
+        pushUndoState();
+      }
+    },
+    true
+  );
+
+  canvas.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.button !== 0 || isSpaceDown) return;
+      if (activeTool !== "select" && activeTool !== "copy") return;
+
+      const cell = eventToCell(event);
+      const zone = findZoneAtCell(cell.x, cell.y);
+      if (zone) pushUndoState();
+    },
+    true
+  );
+
+  const rotateButton = document.getElementById("rotateToolButton");
+  if (rotateButton) {
+    rotateButton.addEventListener(
+      "click",
+      () => {
+        if (selectedZoneSignature) pushUndoState();
+      },
+      true
+    );
+  }
+
+  const clearButton = document.getElementById("clearButton");
+  if (clearButton) {
+    clearButton.addEventListener(
+      "click",
+      () => {
+        if (Object.keys(plan.cells).length) pushUndoState();
+      },
+      true
+    );
+  }
+}
+
+function pushUndoState() {
+  try {
+    patchUndoStack.push(JSON.stringify(plan));
+
+    if (patchUndoStack.length > PATCH_UNDO_LIMIT) {
+      patchUndoStack.shift();
+    }
+  } catch (error) {
+    console.warn("Undo snapshot failed", error);
+  }
+}
+
+function undoLastAction() {
+  if (!patchUndoStack.length) {
+    showSaveStatus("Nothing to undo");
+    return;
+  }
+
+  try {
+    const previous = JSON.parse(patchUndoStack.pop());
+    plan = clonePlan(previous);
+
+    patchPaintDraft = null;
+    patchSplitDraft = null;
+    transformDraft = null;
+    cutDraft = null;
+    paintStrokeZoneId = null;
+    selectedZoneSignature = null;
+    patchSelectedZoneIds.clear();
+
+    persistPlan();
+    renderCategoryList();
+    updateUi();
+    showSaveStatus("Undo");
+  } catch (error) {
+    console.error("Undo failed", error);
+    showSaveStatus("Undo failed");
+  }
 }
 
 function installBetterZoneLabelAnchor() {
@@ -151,11 +258,18 @@ function onPatchPointerDown(event) {
     canvas.setPointerCapture(event.pointerId);
 
     const startCell = eventToCell(event);
+    const startKey = cellKey(startCell.x, startCell.y);
+    const startData = plan.cells[startKey];
+    const zoneId =
+      startData && startData.categoryId === activeCategoryId
+        ? startData.zoneId
+        : createZoneId();
+
     patchPaintDraft = {
       startCell,
       currentCell: startCell,
       categoryId: activeCategoryId,
-      zoneId: createZoneId()
+      zoneId
     };
 
     paintStrokeZoneId = null;
@@ -246,6 +360,7 @@ function eventToGridPoint(event) {
 
 function commitRectanglePaint() {
   const draft = patchPaintDraft;
+  pushUndoState();
 
   const minX = Math.min(draft.startCell.x, draft.currentCell.x);
   const maxX = Math.max(draft.startCell.x, draft.currentCell.x);
@@ -273,10 +388,8 @@ function addContinuousSplitPath(fromPoint, toPoint) {
   if (fromPoint.x === toPoint.x && fromPoint.y === toPoint.y) return;
 
   let cursor = { ...fromPoint };
-
   const dx = toPoint.x - fromPoint.x;
   const dy = toPoint.y - fromPoint.y;
-
   const horizontalFirst = Math.abs(dx) >= Math.abs(dy);
 
   if (horizontalFirst) {
@@ -329,16 +442,12 @@ function addSplitSegment(a, b) {
 function splitEdgeFromGridSegment(a, b) {
   if (a.y === b.y && Math.abs(a.x - b.x) === 1) {
     const col = Math.min(a.x, b.x);
-    const top = cellKey(col, a.y - 1);
-    const bottom = cellKey(col, a.y);
-    return makeSplitEdge(top, bottom);
+    return makeSplitEdge(cellKey(col, a.y - 1), cellKey(col, a.y));
   }
 
   if (a.x === b.x && Math.abs(a.y - b.y) === 1) {
     const row = Math.min(a.y, b.y);
-    const left = cellKey(a.x - 1, row);
-    const right = cellKey(a.x, row);
-    return makeSplitEdge(left, right);
+    return makeSplitEdge(cellKey(a.x - 1, row), cellKey(a.x, row));
   }
 
   return null;
@@ -375,6 +484,14 @@ function commitGridEdgeSplit() {
     }
   });
 
+  if (!affectedZoneIds.size) {
+    showSaveStatus("Cut did not split zone");
+    draw();
+    return;
+  }
+
+  pushUndoState();
+
   let didSplit = false;
   let lastZoneId = null;
 
@@ -393,9 +510,14 @@ function commitGridEdgeSplit() {
     persistPlan();
     updateUi();
   } else {
+    undoDiscardLastNoopSnapshot();
     showSaveStatus("Cut did not split zone");
     draw();
   }
+}
+
+function undoDiscardLastNoopSnapshot() {
+  if (patchUndoStack.length) patchUndoStack.pop();
 }
 
 function splitZoneByBlockedEdges(zoneId, blockedEdges) {
@@ -505,6 +627,8 @@ function mergeSelectedZones() {
     return;
   }
 
+  pushUndoState();
+
   const targetZoneId = zones[0].id;
 
   zones.forEach((zone) => {
@@ -523,6 +647,10 @@ function mergeSelectedZones() {
 }
 
 function deleteMultiSelectedZones() {
+  if (!patchSelectedZoneIds.size) return;
+
+  pushUndoState();
+
   patchSelectedZoneIds.forEach((zoneId) => {
     Object.keys(plan.cells).forEach((key) => {
       if (plan.cells[key].zoneId === zoneId) {
@@ -536,6 +664,102 @@ function deleteMultiSelectedZones() {
 
   persistPlan();
   updateUi();
+}
+
+function installCategoryReassignHandler() {
+  if (!categoryList) return;
+
+  categoryList.addEventListener(
+    "click",
+    (event) => {
+      const row = event.target.closest(".category-button");
+      if (!row) return;
+      if (event.target.closest(".category-name-input")) return;
+
+      const categoryId = row.dataset.categoryId;
+      if (!categoryId) return;
+
+      const targetZoneIds = getSelectedZoneIdsForReassign();
+      if (!targetZoneIds.size) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      reassignSelectedZones(categoryId, targetZoneIds);
+    },
+    true
+  );
+
+  categoryList.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+
+      const row = event.target.closest(".category-button");
+      if (!row) return;
+
+      const categoryId = row.dataset.categoryId;
+      if (!categoryId) return;
+
+      const targetZoneIds = getSelectedZoneIdsForReassign();
+      if (!targetZoneIds.size) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      reassignSelectedZones(categoryId, targetZoneIds);
+    },
+    true
+  );
+}
+
+function getSelectedZoneIdsForReassign() {
+  const targetZoneIds = new Set(patchSelectedZoneIds);
+
+  if (selectedZoneSignature) {
+    const selectedZone = calculateZones().find((zone) => zone.signature === selectedZoneSignature);
+    if (selectedZone) {
+      targetZoneIds.add(selectedZone.id);
+    }
+  }
+
+  return targetZoneIds;
+}
+
+function reassignSelectedZones(categoryId, targetZoneIds) {
+  const targetCells = Object.values(plan.cells).filter((cell) => targetZoneIds.has(cell.zoneId));
+
+  if (!targetCells.length) {
+    showSaveStatus("No selected zone");
+    draw();
+    return;
+  }
+
+  if (targetCells.every((cell) => cell.categoryId === categoryId)) {
+    showSaveStatus("Already same category");
+    draw();
+    return;
+  }
+
+  pushUndoState();
+
+  targetCells.forEach((cell) => {
+    cell.categoryId = categoryId;
+  });
+
+  activeCategoryId = categoryId;
+  patchSelectedZoneIds.clear();
+  targetZoneIds.forEach((zoneId) => patchSelectedZoneIds.add(zoneId));
+
+  const firstZoneId = [...targetZoneIds][0];
+  selectedZoneSignature = zoneSignature(firstZoneId);
+
+  persistPlan();
+  renderCategoryList();
+  updateUi();
+
+  const category = categoryById(categoryId);
+  showSaveStatus(`Changed to ${category.name}`);
 }
 
 function drawPatchPreviews() {
@@ -621,97 +845,4 @@ function drawMultiSelectionOverlay(targetCtx) {
       targetCtx.setLineDash([]);
       targetCtx.restore();
     });
-}
-
-function installCategoryReassignHandler() {
-  if (!categoryList) return;
-
-  categoryList.addEventListener(
-    "click",
-    (event) => {
-      const row = event.target.closest(".category-button");
-      if (!row) return;
-
-      // Allow inline rename behavior to continue.
-      if (event.target.closest(".category-name-input")) return;
-
-      const categoryId = row.dataset.categoryId;
-      if (!categoryId) return;
-
-      const targetZoneIds = getSelectedZoneIdsForReassign();
-      if (!targetZoneIds.size) return;
-
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      reassignSelectedZones(categoryId, targetZoneIds);
-    },
-    true
-  );
-
-  categoryList.addEventListener(
-    "keydown",
-    (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-
-      const row = event.target.closest(".category-button");
-      if (!row) return;
-
-      const categoryId = row.dataset.categoryId;
-      if (!categoryId) return;
-
-      const targetZoneIds = getSelectedZoneIdsForReassign();
-      if (!targetZoneIds.size) return;
-
-      event.preventDefault();
-      event.stopImmediatePropagation();
-
-      reassignSelectedZones(categoryId, targetZoneIds);
-    },
-    true
-  );
-}
-
-function getSelectedZoneIdsForReassign() {
-  const targetZoneIds = new Set(patchSelectedZoneIds);
-
-  if (selectedZoneSignature) {
-    const selectedZone = calculateZones().find((zone) => zone.signature === selectedZoneSignature);
-    if (selectedZone) {
-      targetZoneIds.add(selectedZone.id);
-    }
-  }
-
-  return targetZoneIds;
-}
-
-function reassignSelectedZones(categoryId, targetZoneIds) {
-  let changed = false;
-
-  Object.values(plan.cells).forEach((cell) => {
-    if (targetZoneIds.has(cell.zoneId)) {
-      cell.categoryId = categoryId;
-      changed = true;
-    }
-  });
-
-  if (!changed) {
-    showSaveStatus("No selected zone");
-    draw();
-    return;
-  }
-
-  activeCategoryId = categoryId;
-  patchSelectedZoneIds.clear();
-  targetZoneIds.forEach((zoneId) => patchSelectedZoneIds.add(zoneId));
-
-  const firstZoneId = [...targetZoneIds][0];
-  selectedZoneSignature = zoneSignature(firstZoneId);
-
-  persistPlan();
-  renderCategoryList();
-  updateUi();
-
-  const category = categoryById(categoryId);
-  showSaveStatus(`Changed to ${category.name}`);
 }
