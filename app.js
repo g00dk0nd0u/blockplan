@@ -2,7 +2,7 @@
 
 const STORAGE_KEY = "blockplan.currentPlan.v1";
 const CELL_PX = 36;
-const TOOLS = ["select", "paint", "move", "copy", "rotate"];
+const TOOLS = ["select", "paint", "copy"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#cbd5e1" },
@@ -90,15 +90,10 @@ function bindEvents() {
   document.getElementById("exportPngButton").addEventListener("click", exportPng);
   document.getElementById("clearButton").addEventListener("click", clearPlan);
   document.getElementById("resetViewButton").addEventListener("click", resetView);
+  document.getElementById("rotateToolButton").addEventListener("click", rotateSelectedZone);
   document.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => {
-      const tool = button.dataset.tool;
-      if (tool === "rotate") {
-        setActiveTool("rotate");
-        rotateSelectedZone();
-        return;
-      }
-      setActiveTool(tool);
+      setActiveTool(button.dataset.tool);
     });
   });
   loadJsonInput.addEventListener("change", loadJson);
@@ -137,11 +132,10 @@ function bindEvents() {
     } else if (key === "b") {
       setActiveTool("paint");
     } else if (key === "m") {
-      setActiveTool("move");
+      setActiveTool("select");
     } else if (key === "c") {
       setActiveTool("copy");
     } else if (key === "r") {
-      setActiveTool("rotate");
       rotateSelectedZone();
     }
   });
@@ -278,7 +272,7 @@ function setActiveTool(tool) {
 function updateCanvasCursor() {
   if (activeTool === "paint") {
     canvas.style.cursor = "crosshair";
-  } else if (activeTool === "move" || activeTool === "copy") {
+  } else if (activeTool === "select" || activeTool === "copy") {
     canvas.style.cursor = "grab";
   } else {
     canvas.style.cursor = "default";
@@ -404,14 +398,9 @@ function handleZoneToolPointerDown(event) {
 
   selectedZoneSignature = zone.signature;
 
-  if (activeTool === "rotate") {
-    rotateSelectedZone();
-    return;
-  }
-
-  if (activeTool === "move" || activeTool === "copy") {
+  if (activeTool === "select" || activeTool === "copy") {
     transformDraft = {
-      mode: activeTool,
+      mode: activeTool === "copy" ? "copy" : "move",
       categoryId: zone.categoryId,
       originalKeys: [...zone.cellKeys],
       startCell: cell,
