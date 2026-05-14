@@ -25,6 +25,8 @@ let isPainting = false;
 let isPanning = false;
 let isSpaceDown = false;
 let lastPointer = { x: 0, y: 0 };
+let editingCategoryId = null;
+let editingCategoryFallback = "";
 
 const view = {
   zoom: 1,
@@ -120,23 +122,95 @@ function resizeCanvas() {
 function renderCategoryList() {
   categoryList.innerHTML = "";
   plan.categories.forEach((category) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "category-button";
-    button.dataset.categoryId = category.id;
-    button.innerHTML = `
-      <span class="category-swatch" style="background:${category.color}"></span>
-      <span>${category.name}</span>
-    `;
-    button.addEventListener("click", () => {
+    const row = document.createElement("div");
+    row.className = "category-button";
+    row.dataset.categoryId = category.id;
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", `Select ${category.name}`);
+
+    const swatch = document.createElement("span");
+    swatch.className = "category-swatch";
+    swatch.style.background = category.color;
+    row.appendChild(swatch);
+
+    if (editingCategoryId === category.id) {
+      const input = document.createElement("input");
+      input.className = "category-name-input";
+      input.value = category.name;
+      input.setAttribute("aria-label", `Rename ${category.name}`);
+      input.addEventListener("click", (event) => event.stopPropagation());
+      input.addEventListener("input", () => renameCategory(category.id, input.value));
+      input.addEventListener("blur", finishCategoryRename);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          input.blur();
+        }
+        if (event.key === "Escape") {
+          renameCategory(category.id, editingCategoryFallback);
+          input.blur();
+        }
+      });
+      row.appendChild(input);
+      window.setTimeout(() => {
+        input.focus();
+        input.select();
+      });
+    } else {
+      const name = document.createElement("span");
+      name.className = "category-name";
+      name.textContent = category.name;
+      name.title = "Click to rename";
+      name.addEventListener("click", (event) => {
+        event.stopPropagation();
+        startCategoryRename(category.id);
+      });
+      row.appendChild(name);
+    }
+
+    row.addEventListener("click", () => {
       activeCategoryId = category.id;
       renderCategoryList();
     });
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        activeCategoryId = category.id;
+        renderCategoryList();
+      }
+    });
+
     if (category.id === activeCategoryId) {
-      button.classList.add("is-active");
+      row.classList.add("is-active");
     }
-    categoryList.appendChild(button);
+    if (category.id === "unassigned") {
+      row.classList.add("is-unassigned");
+    }
+    categoryList.appendChild(row);
   });
+}
+
+function startCategoryRename(categoryId) {
+  const category = categoryById(categoryId);
+  editingCategoryId = categoryId;
+  editingCategoryFallback = category.name;
+  activeCategoryId = categoryId;
+  renderCategoryList();
+}
+
+function renameCategory(categoryId, rawName) {
+  const category = categoryById(categoryId);
+  const nextName = rawName.trim();
+  category.name = nextName || editingCategoryFallback || category.name;
+  persistPlan();
+  renderDashboard();
+}
+
+function finishCategoryRename() {
+  editingCategoryId = null;
+  editingCategoryFallback = "";
+  renderCategoryList();
+  renderDashboard();
 }
 
 function onPointerDown(event) {
@@ -265,9 +339,10 @@ function drawZonesOnContext(targetCtx, zones) {
   zones.forEach((zone) => {
     const category = categoryById(zone.categoryId);
     const cellSet = new Set(zone.cellKeys);
+    const isUnassigned = zone.categoryId === "unassigned";
     targetCtx.save();
     targetCtx.fillStyle = category.color;
-    targetCtx.globalAlpha = zone.categoryId === "unassigned" ? 0.58 : 0.84;
+    targetCtx.globalAlpha = isUnassigned ? 0.34 : 0.84;
 
     zone.cellKeys.forEach((key) => {
       const [x, y] = parseCellKey(key);
@@ -275,8 +350,8 @@ function drawZonesOnContext(targetCtx, zones) {
     });
 
     targetCtx.globalAlpha = 1;
-    targetCtx.strokeStyle = darkenColor(category.color, 0.24);
-    targetCtx.lineWidth = 2.5;
+    targetCtx.strokeStyle = isUnassigned ? "rgba(100, 116, 139, 0.46)" : darkenColor(category.color, 0.24);
+    targetCtx.lineWidth = isUnassigned ? 1.6 : 2.5;
     targetCtx.lineCap = "round";
     targetCtx.lineJoin = "round";
     drawZoneOutline(targetCtx, zone.cellKeys, cellSet);
@@ -341,7 +416,7 @@ function drawGrid(rect) {
 function updateUi() {
   moduleSizeSelect.value = String(plan.moduleSizeMm);
   moduleReadout.textContent = `${plan.moduleSizeMm} mm`;
-  cellAreaReadout.textContent = `${getCellAreaSqm().toFixed(2)} sqm`;
+  cellAreaReadout.textContent = `${getCellAreaSqm().toFixed(2)} ㎡`;
   renderDashboard();
   draw();
 }
@@ -361,7 +436,7 @@ function renderDashboard() {
       </div>
       <div class="dashboard-stats">
         <div class="stat">
-          <span class="stat-label">Area</span>
+          <span class="stat-label">Area ㎡</span>
           <span class="stat-value">${categoryStats.areaSqm.toFixed(2)}</span>
         </div>
         <div class="stat">
