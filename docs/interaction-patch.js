@@ -378,6 +378,7 @@ function commitRectanglePaint() {
 
   selectedZoneSignature = null;
   patchSelectedZoneIds.clear();
+  patchPaintDraft = null;
 
   persistPlan();
   updateUi();
