@@ -25,6 +25,7 @@ const patchSelectedZoneIds = new Set();
   installMergeButton();
   installPatchKeyboardShortcuts();
   installBetterZoneLabelAnchor();
+  installCategoryReassignHandler();
 
   canvas.addEventListener("pointerdown", onPatchPointerDown, true);
   canvas.addEventListener("pointermove", onPatchPointerMove, true);
@@ -620,4 +621,97 @@ function drawMultiSelectionOverlay(targetCtx) {
       targetCtx.setLineDash([]);
       targetCtx.restore();
     });
+}
+
+function installCategoryReassignHandler() {
+  if (!categoryList) return;
+
+  categoryList.addEventListener(
+    "click",
+    (event) => {
+      const row = event.target.closest(".category-button");
+      if (!row) return;
+
+      // Allow inline rename behavior to continue.
+      if (event.target.closest(".category-name-input")) return;
+
+      const categoryId = row.dataset.categoryId;
+      if (!categoryId) return;
+
+      const targetZoneIds = getSelectedZoneIdsForReassign();
+      if (!targetZoneIds.size) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      reassignSelectedZones(categoryId, targetZoneIds);
+    },
+    true
+  );
+
+  categoryList.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+
+      const row = event.target.closest(".category-button");
+      if (!row) return;
+
+      const categoryId = row.dataset.categoryId;
+      if (!categoryId) return;
+
+      const targetZoneIds = getSelectedZoneIdsForReassign();
+      if (!targetZoneIds.size) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      reassignSelectedZones(categoryId, targetZoneIds);
+    },
+    true
+  );
+}
+
+function getSelectedZoneIdsForReassign() {
+  const targetZoneIds = new Set(patchSelectedZoneIds);
+
+  if (selectedZoneSignature) {
+    const selectedZone = calculateZones().find((zone) => zone.signature === selectedZoneSignature);
+    if (selectedZone) {
+      targetZoneIds.add(selectedZone.id);
+    }
+  }
+
+  return targetZoneIds;
+}
+
+function reassignSelectedZones(categoryId, targetZoneIds) {
+  let changed = false;
+
+  Object.values(plan.cells).forEach((cell) => {
+    if (targetZoneIds.has(cell.zoneId)) {
+      cell.categoryId = categoryId;
+      changed = true;
+    }
+  });
+
+  if (!changed) {
+    showSaveStatus("No selected zone");
+    draw();
+    return;
+  }
+
+  activeCategoryId = categoryId;
+  patchSelectedZoneIds.clear();
+  targetZoneIds.forEach((zoneId) => patchSelectedZoneIds.add(zoneId));
+
+  const firstZoneId = [...targetZoneIds][0];
+  selectedZoneSignature = zoneSignature(firstZoneId);
+
+  persistPlan();
+  renderCategoryList();
+  updateUi();
+
+  const category = categoryById(categoryId);
+  showSaveStatus(`Changed to ${category.name}`);
 }
