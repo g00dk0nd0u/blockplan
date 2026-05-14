@@ -2,16 +2,20 @@
 
 const STORAGE_KEY = "blockplan.currentPlan.v1";
 const CELL_PX = 36;
+const CANVAS_BACKGROUND = "#E8E5E0";
+const GRID_LINE = "rgba(160, 150, 140, 0.30)";
+const GRID_LINE_SOFT = "rgba(160, 150, 140, 0.20)";
 const TOOLS = ["select", "paint", "copy"];
 
 const categories = [
-  { id: "unassigned", name: "Unassigned", color: "#cbd5e1" },
-  { id: "office", name: "Office", color: "#60a5fa" },
-  { id: "meeting", name: "Meeting", color: "#f59e0b" },
-  { id: "core", name: "Core", color: "#ef4444" },
-  { id: "circulation", name: "Circulation", color: "#22c55e" },
-  { id: "mep", name: "MEP", color: "#a855f7" }
+  { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
+  { id: "office", name: "Office", color: "#AABB9C" },
+  { id: "meeting", name: "Meeting", color: "#90B0C4" },
+  { id: "core", name: "Core", color: "#C0A090" },
+  { id: "circulation", name: "Circulation", color: "#D2C890" },
+  { id: "mep", name: "MEP", color: "#A89EB8" }
 ];
+const defaultCategoryColors = new Map(categories.map((category) => [category.id, category.color]));
 
 const defaultPlan = {
   version: 1,
@@ -491,7 +495,7 @@ function draw() {
 }
 
 function drawBackground(rect) {
-  ctx.fillStyle = "#e9eef4";
+  ctx.fillStyle = CANVAS_BACKGROUND;
   ctx.fillRect(0, 0, rect.width, rect.height);
 }
 
@@ -523,7 +527,7 @@ function drawZonesOnContext(targetCtx, zones, options = {}) {
     targetCtx.fill("evenodd");
 
     targetCtx.globalAlpha = 1;
-    targetCtx.strokeStyle = isUnassigned ? "rgba(100, 116, 139, 0.46)" : darkenColor(category.color, 0.24);
+    targetCtx.strokeStyle = isUnassigned ? "rgba(110, 104, 96, 0.46)" : darkenColor(category.color, 0.24);
     targetCtx.lineWidth = isUnassigned ? 1.6 : 2.5;
     targetCtx.lineCap = "round";
     targetCtx.lineJoin = "round";
@@ -531,7 +535,7 @@ function drawZonesOnContext(targetCtx, zones, options = {}) {
 
     if (options.showSelection && zone.signature === selectedZoneSignature) {
       targetCtx.globalAlpha = 1;
-      targetCtx.strokeStyle = "#111827";
+      targetCtx.strokeStyle = "#1C1B19";
       targetCtx.lineWidth = 3.5;
       targetCtx.setLineDash([8, 5]);
       targetCtx.stroke();
@@ -558,7 +562,7 @@ function drawTransformDraft(targetCtx) {
   targetCtx.globalAlpha = transformDraft.isValid ? 0.38 : 0.16;
   targetCtx.fill("evenodd");
   targetCtx.globalAlpha = 1;
-  targetCtx.strokeStyle = transformDraft.isValid ? "#111827" : "#dc2626";
+  targetCtx.strokeStyle = transformDraft.isValid ? "#1C1B19" : "#B04040";
   targetCtx.lineWidth = 3;
   targetCtx.setLineDash([7, 5]);
   targetCtx.stroke();
@@ -724,7 +728,7 @@ function drawGrid(rect) {
   const startX = view.panX % spacing;
   const startY = view.panY % spacing;
   ctx.beginPath();
-  ctx.strokeStyle = spacing < 18 ? "rgba(100, 116, 139, 0.20)" : "rgba(100, 116, 139, 0.32)";
+  ctx.strokeStyle = spacing < 18 ? GRID_LINE_SOFT : GRID_LINE;
   ctx.lineWidth = 1;
 
   for (let x = startX; x < rect.width; x += spacing) {
@@ -981,6 +985,10 @@ function normalizePlan(source) {
       delete normalized.cells[key];
     }
   });
+  normalized.categories = normalized.categories.map((category) => ({
+    ...category,
+    color: defaultCategoryColors.get(category.id) || category.color
+  }));
 
   return normalized;
 }
@@ -1029,7 +1037,7 @@ function exportPng() {
   exportCanvas.height = height;
   const exportCtx = exportCanvas.getContext("2d");
 
-  exportCtx.fillStyle = "#ffffff";
+  exportCtx.fillStyle = CANVAS_BACKGROUND;
   exportCtx.fillRect(0, 0, width, height);
   exportCtx.translate(padding - bounds.minX * CELL_PX, padding - bounds.minY * CELL_PX);
   drawExportGrid(exportCtx, bounds);
@@ -1045,7 +1053,7 @@ function exportPng() {
 
 function drawExportGrid(targetCtx, bounds) {
   targetCtx.beginPath();
-  targetCtx.strokeStyle = "#e0e7ef";
+  targetCtx.strokeStyle = GRID_LINE;
   targetCtx.lineWidth = 1;
   for (let x = bounds.minX; x <= bounds.maxX + 1; x += 1) {
     targetCtx.moveTo(x * CELL_PX, bounds.minY * CELL_PX);
