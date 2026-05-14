@@ -8,6 +8,16 @@ Open `index.html` directly in a browser.
 
 No install, npm, build step, or local server is required. The app is also ready to publish with GitHub Pages.
 
+## Create a Review Package
+
+To create a ZIP file of the repository for ChatGPT review:
+
+```bash
+python3 user_tools/export_review_package.py
+```
+
+The ZIP is written to `output/review_packages/`.
+
 ## Features
 
 - HTML Canvas grid planner
@@ -45,6 +55,7 @@ The cell map is intentionally simple so future features can add external boundar
 - `index.html` - app structure
 - `style.css` - layout and visual design
 - `app.js` - canvas drawing, painting, zones, save/load, export
+- `user_tools/export_review_package.py` - creates a review ZIP for ChatGPT
 - `AGENTS.md` - guidance for future coding agents
 
 ## Current Scope
