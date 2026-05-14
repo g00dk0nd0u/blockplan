@@ -257,12 +257,6 @@ h2 {
   color: #1d4ed8;
 }
 
-#paintToolButton.is-active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #ffffff;
-}
-
 .secondary-button {
   background: #e8eef6;
   color: #1e293b;

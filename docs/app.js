@@ -28,7 +28,7 @@ let isSpaceDown = false;
 let lastPointer = { x: 0, y: 0 };
 let editingCategoryId = null;
 let editingCategoryFallback = "";
-let activeTool = "paint";
+let activeTool = "select";
 let selectedZoneSignature = null;
 let transformDraft = null;
 
@@ -210,12 +210,14 @@ function renderCategoryList() {
 
     row.addEventListener("click", () => {
       activeCategoryId = category.id;
+      setActiveTool("paint");
       renderCategoryList();
     });
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         activeCategoryId = category.id;
+        setActiveTool("paint");
         renderCategoryList();
       }
     });
@@ -235,6 +237,7 @@ function startCategoryRename(categoryId) {
   editingCategoryId = categoryId;
   editingCategoryFallback = category.name;
   activeCategoryId = categoryId;
+  setActiveTool("paint");
   renderCategoryList();
 }
 
