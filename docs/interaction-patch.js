@@ -1,16 +1,20 @@
 "use strict";
 
-// Interaction patch: rectangular paint and grid-edge cut.
-// This file intentionally sits after app.js and intercepts only Paint/Cut pointer actions.
+// Interaction patch:
+// - rectangle paint
+// - continuous grid-edge split line
+// - improved label anchor
+// - Shift multi-select
+// - Merge zones
+// Loaded after app.js.
 
 let patchPaintDraft = null;
-let patchCutDraft = null;
+let patchSplitDraft = null;
 let patchOriginalDraw = null;
+const patchSelectedZoneIds = new Set();
 
 (function setupInteractionPatch() {
-  if (!canvas || !ctx) {
-    return;
-  }
+  if (!canvas || !ctx) return;
 
   patchOriginalDraw = draw;
   draw = function patchedDraw() {
@@ -18,20 +22,133 @@ let patchOriginalDraw = null;
     drawPatchPreviews();
   };
 
+  installMergeButton();
+  installPatchKeyboardShortcuts();
+  installBetterZoneLabelAnchor();
+
   canvas.addEventListener("pointerdown", onPatchPointerDown, true);
   canvas.addEventListener("pointermove", onPatchPointerMove, true);
   canvas.addEventListener("pointerup", onPatchPointerUp, true);
   canvas.addEventListener("pointercancel", onPatchPointerUp, true);
 })();
 
+function installMergeButton() {
+  const toolGrid = document.querySelector(".tool-grid");
+  const rotateButton = document.getElementById("rotateToolButton");
+
+  if (!toolGrid || document.getElementById("mergeToolButton")) return;
+
+  const button = document.createElement("button");
+  button.id = "mergeToolButton";
+  button.type = "button";
+  button.className = "tool-button";
+  button.textContent = "Merge";
+  button.title = "Merge selected zones";
+  button.addEventListener("click", mergeSelectedZones);
+
+  toolGrid.insertBefore(button, rotateButton || null);
+}
+
+function installPatchKeyboardShortcuts() {
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (isEditingText()) return;
+
+      if (event.key === "Escape") {
+        patchSelectedZoneIds.clear();
+        draw();
+        return;
+      }
+
+      if ((event.key === "Delete" || event.key === "Backspace") && patchSelectedZoneIds.size > 1) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        deleteMultiSelectedZones();
+        return;
+      }
+
+      if (event.key.toLowerCase() === "g") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        mergeSelectedZones();
+      }
+    },
+    true
+  );
+}
+
+function installBetterZoneLabelAnchor() {
+  getZoneLabelAnchor = function betterZoneLabelAnchor(cellKeys) {
+    const cellSet = new Set(cellKeys);
+    const centers = cellKeys.map((key) => {
+      const [x, y] = parseCellKey(key);
+      return {
+        key,
+        x,
+        y,
+        cx: (x + 0.5) * CELL_PX,
+        cy: (y + 0.5) * CELL_PX
+      };
+    });
+
+    const centroid = centers.reduce(
+      (total, item) => ({
+        x: total.x + item.cx,
+        y: total.y + item.cy
+      }),
+      { x: 0, y: 0 }
+    );
+
+    centroid.x /= centers.length;
+    centroid.y /= centers.length;
+
+    let best = centers[0];
+    let bestScore = -Infinity;
+
+    centers.forEach((item) => {
+      const inwardDistance = distanceToNearestEmptyCell(item.x, item.y, cellSet);
+      const centroidDistance = Math.hypot(item.cx - centroid.x, item.cy - centroid.y) / CELL_PX;
+      const score = inwardDistance * 100 - centroidDistance;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = item;
+      }
+    });
+
+    return { x: best.cx, y: best.cy };
+  };
+}
+
+function distanceToNearestEmptyCell(x, y, cellSet) {
+  const maxRadius = 24;
+
+  for (let radius = 1; radius <= maxRadius; radius += 1) {
+    for (let dx = -radius; dx <= radius; dx += 1) {
+      for (let dy = -radius; dy <= radius; dy += 1) {
+        if (Math.abs(dx) !== radius && Math.abs(dy) !== radius) continue;
+        if (!cellSet.has(cellKey(x + dx, y + dy))) return radius;
+      }
+    }
+  }
+
+  return maxRadius;
+}
+
 function onPatchPointerDown(event) {
-  if (event.button !== 0 || event.button === 1 || isSpaceDown) {
+  if (event.button !== 0 || isSpaceDown) return;
+
+  if (activeTool === "select" && event.shiftKey) {
+    stopOriginalPointerAction(event);
+    toggleZoneMultiSelection(event);
     return;
   }
 
   if (activeTool === "paint") {
     stopOriginalPointerAction(event);
     canvas.setPointerCapture(event.pointerId);
+
     const startCell = eventToCell(event);
     patchPaintDraft = {
       startCell,
@@ -39,9 +156,12 @@ function onPatchPointerDown(event) {
       categoryId: activeCategoryId,
       zoneId: createZoneId()
     };
+
     paintStrokeZoneId = null;
     isPainting = false;
     selectedZoneSignature = null;
+    patchSelectedZoneIds.clear();
+
     updateCellStatus(event);
     draw();
     return;
@@ -50,22 +170,22 @@ function onPatchPointerDown(event) {
   if (activeTool === "cut") {
     stopOriginalPointerAction(event);
     canvas.setPointerCapture(event.pointerId);
-    const world = eventToWorld(event);
-    patchCutDraft = {
+
+    const point = eventToGridPoint(event);
+    patchSplitDraft = {
       edges: new Set(),
-      lastWorld: world
+      segments: [],
+      lastPoint: point
     };
+
     cutDraft = null;
-    addCutEdgesBetween(world, world);
     updateCellStatus(event);
     draw();
   }
 }
 
 function onPatchPointerMove(event) {
-  if (!patchPaintDraft && !patchCutDraft) {
-    return;
-  }
+  if (!patchPaintDraft && !patchSplitDraft) return;
 
   stopOriginalPointerAction(event);
   updateCellStatus(event);
@@ -76,20 +196,19 @@ function onPatchPointerMove(event) {
     return;
   }
 
-  if (patchCutDraft) {
-    const world = eventToWorld(event);
-    addCutEdgesBetween(patchCutDraft.lastWorld, world);
-    patchCutDraft.lastWorld = world;
+  if (patchSplitDraft) {
+    const point = eventToGridPoint(event);
+    addContinuousSplitPath(patchSplitDraft.lastPoint, point);
+    patchSplitDraft.lastPoint = point;
     draw();
   }
 }
 
 function onPatchPointerUp(event) {
-  if (!patchPaintDraft && !patchCutDraft) {
-    return;
-  }
+  if (!patchPaintDraft && !patchSplitDraft) return;
 
   stopOriginalPointerAction(event);
+
   if (canvas.hasPointerCapture(event.pointerId)) {
     canvas.releasePointerCapture(event.pointerId);
   }
@@ -100,9 +219,9 @@ function onPatchPointerUp(event) {
     return;
   }
 
-  if (patchCutDraft) {
-    commitGridEdgeCut();
-    patchCutDraft = null;
+  if (patchSplitDraft) {
+    commitGridEdgeSplit();
+    patchSplitDraft = null;
   }
 }
 
@@ -116,8 +235,17 @@ function eventToWorld(event) {
   return screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
 }
 
+function eventToGridPoint(event) {
+  const world = eventToWorld(event);
+  return {
+    x: Math.round(world.x / CELL_PX),
+    y: Math.round(world.y / CELL_PX)
+  };
+}
+
 function commitRectanglePaint() {
   const draft = patchPaintDraft;
+
   const minX = Math.min(draft.startCell.x, draft.currentCell.x);
   const maxX = Math.max(draft.startCell.x, draft.currentCell.x);
   const minY = Math.min(draft.startCell.y, draft.currentCell.y);
@@ -133,55 +261,92 @@ function commitRectanglePaint() {
   }
 
   selectedZoneSignature = zoneSignature(draft.zoneId);
+  patchSelectedZoneIds.clear();
+
   persistPlan();
   updateUi();
 }
 
-function addCutEdgesBetween(fromWorld, toWorld) {
-  if (!patchCutDraft) {
-    return;
-  }
+function addContinuousSplitPath(fromPoint, toPoint) {
+  if (!patchSplitDraft) return;
+  if (fromPoint.x === toPoint.x && fromPoint.y === toPoint.y) return;
 
-  const distancePx = Math.hypot(toWorld.x - fromWorld.x, toWorld.y - fromWorld.y);
-  const steps = Math.max(1, Math.ceil(distancePx / (CELL_PX / 4)));
+  let cursor = { ...fromPoint };
 
-  for (let i = 0; i <= steps; i += 1) {
-    const t = i / steps;
-    const world = {
-      x: fromWorld.x + (toWorld.x - fromWorld.x) * t,
-      y: fromWorld.y + (toWorld.y - fromWorld.y) * t
-    };
-    const edge = nearestGridCutEdge(world);
-    if (edge) {
-      patchCutDraft.edges.add(edge.id);
-    }
+  const dx = toPoint.x - fromPoint.x;
+  const dy = toPoint.y - fromPoint.y;
+
+  const horizontalFirst = Math.abs(dx) >= Math.abs(dy);
+
+  if (horizontalFirst) {
+    cursor = addHorizontalSplitSegments(cursor, toPoint.x);
+    cursor = addVerticalSplitSegments(cursor, toPoint.y);
+  } else {
+    cursor = addVerticalSplitSegments(cursor, toPoint.y);
+    cursor = addHorizontalSplitSegments(cursor, toPoint.x);
   }
 }
 
-function nearestGridCutEdge(world) {
-  const gridX = Math.round(world.x / CELL_PX);
-  const gridY = Math.round(world.y / CELL_PX);
-  const distToVertical = Math.abs(world.x - gridX * CELL_PX);
-  const distToHorizontal = Math.abs(world.y - gridY * CELL_PX);
+function addHorizontalSplitSegments(cursor, targetX) {
+  const step = Math.sign(targetX - cursor.x);
 
-  if (distToVertical <= distToHorizontal) {
-    const row = Math.floor(world.y / CELL_PX);
-    const left = cellKey(gridX - 1, row);
-    const right = cellKey(gridX, row);
-    return makeCutEdge(left, right);
+  while (cursor.x !== targetX && step !== 0) {
+    const next = { x: cursor.x + step, y: cursor.y };
+    addSplitSegment(cursor, next);
+    cursor = next;
   }
 
-  const col = Math.floor(world.x / CELL_PX);
-  const top = cellKey(col, gridY - 1);
-  const bottom = cellKey(col, gridY);
-  return makeCutEdge(top, bottom);
+  return cursor;
 }
 
-function makeCutEdge(keyA, keyB) {
-  if (!keyA || !keyB || keyA === keyB) {
-    return null;
+function addVerticalSplitSegments(cursor, targetY) {
+  const step = Math.sign(targetY - cursor.y);
+
+  while (cursor.y !== targetY && step !== 0) {
+    const next = { x: cursor.x, y: cursor.y + step };
+    addSplitSegment(cursor, next);
+    cursor = next;
   }
+
+  return cursor;
+}
+
+function addSplitSegment(a, b) {
+  const edge = splitEdgeFromGridSegment(a, b);
+  if (!edge) return;
+
+  if (!patchSplitDraft.edges.has(edge.id)) {
+    patchSplitDraft.edges.add(edge.id);
+    patchSplitDraft.segments.push({
+      a: { ...a },
+      b: { ...b },
+      edgeId: edge.id
+    });
+  }
+}
+
+function splitEdgeFromGridSegment(a, b) {
+  if (a.y === b.y && Math.abs(a.x - b.x) === 1) {
+    const col = Math.min(a.x, b.x);
+    const top = cellKey(col, a.y - 1);
+    const bottom = cellKey(col, a.y);
+    return makeSplitEdge(top, bottom);
+  }
+
+  if (a.x === b.x && Math.abs(a.y - b.y) === 1) {
+    const row = Math.min(a.y, b.y);
+    const left = cellKey(a.x - 1, row);
+    const right = cellKey(a.x, row);
+    return makeSplitEdge(left, right);
+  }
+
+  return null;
+}
+
+function makeSplitEdge(keyA, keyB) {
+  if (!keyA || !keyB || keyA === keyB) return null;
   const ordered = [keyA, keyB].sort();
+
   return {
     id: `${ordered[0]}|${ordered[1]}`,
     a: ordered[0],
@@ -189,18 +354,21 @@ function makeCutEdge(keyA, keyB) {
   };
 }
 
-function commitGridEdgeCut() {
-  const cutEdges = patchCutDraft.edges;
-  if (!cutEdges.size) {
+function commitGridEdgeSplit() {
+  const splitEdges = patchSplitDraft.edges;
+
+  if (!splitEdges.size) {
     draw();
     return;
   }
 
   const affectedZoneIds = new Set();
-  cutEdges.forEach((edgeId) => {
+
+  splitEdges.forEach((edgeId) => {
     const [a, b] = edgeId.split("|");
     const cellA = plan.cells[a];
     const cellB = plan.cells[b];
+
     if (cellA && cellB && cellA.zoneId && cellA.zoneId === cellB.zoneId) {
       affectedZoneIds.add(cellA.zoneId);
     }
@@ -208,8 +376,9 @@ function commitGridEdgeCut() {
 
   let didSplit = false;
   let lastZoneId = null;
+
   affectedZoneIds.forEach((zoneId) => {
-    const result = splitZoneByBlockedEdges(zoneId, cutEdges);
+    const result = splitZoneByBlockedEdges(zoneId, splitEdges);
     if (result.didSplit) {
       didSplit = true;
       lastZoneId = result.lastZoneId;
@@ -218,6 +387,8 @@ function commitGridEdgeCut() {
 
   if (didSplit && lastZoneId) {
     selectedZoneSignature = zoneSignature(lastZoneId);
+    patchSelectedZoneIds.clear();
+    patchSelectedZoneIds.add(lastZoneId);
     persistPlan();
     updateUi();
   } else {
@@ -226,8 +397,9 @@ function commitGridEdgeCut() {
   }
 }
 
-function splitZoneByBlockedEdges(zoneId, cutEdges) {
+function splitZoneByBlockedEdges(zoneId, blockedEdges) {
   const zoneKeys = Object.keys(plan.cells).filter((key) => plan.cells[key].zoneId === zoneId);
+
   if (zoneKeys.length < 2) {
     return { didSplit: false, lastZoneId: zoneId };
   }
@@ -237,9 +409,7 @@ function splitZoneByBlockedEdges(zoneId, cutEdges) {
   const components = [];
 
   zoneKeys.forEach((startKey) => {
-    if (visited.has(startKey)) {
-      return;
-    }
+    if (visited.has(startKey)) return;
 
     const component = [];
     const stack = [startKey];
@@ -248,15 +418,16 @@ function splitZoneByBlockedEdges(zoneId, cutEdges) {
     while (stack.length) {
       const key = stack.pop();
       component.push(key);
+
       const [x, y] = parseCellKey(key);
+
       neighbors(x, y).forEach((neighborKey) => {
-        if (!zoneSet.has(neighborKey) || visited.has(neighborKey)) {
-          return;
-        }
-        const edge = makeCutEdge(key, neighborKey);
-        if (edge && cutEdges.has(edge.id)) {
-          return;
-        }
+        if (!zoneSet.has(neighborKey)) return;
+        if (visited.has(neighborKey)) return;
+
+        const edge = makeSplitEdge(key, neighborKey);
+        if (edge && blockedEdges.has(edge.id)) return;
+
         visited.add(neighborKey);
         stack.push(neighborKey);
       });
@@ -270,15 +441,100 @@ function splitZoneByBlockedEdges(zoneId, cutEdges) {
   }
 
   let lastZoneId = zoneId;
+
   components.forEach((component, index) => {
     const nextZoneId = index === 0 ? zoneId : createZoneId();
     lastZoneId = nextZoneId;
+
     component.forEach((key) => {
       plan.cells[key].zoneId = nextZoneId;
     });
   });
 
   return { didSplit: true, lastZoneId };
+}
+
+function toggleZoneMultiSelection(event) {
+  addCurrentSingleSelectionToMulti();
+
+  const cell = eventToCell(event);
+  const zone = findZoneAtCell(cell.x, cell.y);
+
+  if (!zone) {
+    draw();
+    return;
+  }
+
+  if (patchSelectedZoneIds.has(zone.id)) {
+    patchSelectedZoneIds.delete(zone.id);
+  } else {
+    patchSelectedZoneIds.add(zone.id);
+  }
+
+  selectedZoneSignature = zone.signature;
+  draw();
+}
+
+function addCurrentSingleSelectionToMulti() {
+  if (!selectedZoneSignature) return;
+
+  const zone = calculateZones().find((item) => item.signature === selectedZoneSignature);
+
+  if (zone) {
+    patchSelectedZoneIds.add(zone.id);
+  }
+}
+
+function mergeSelectedZones() {
+  addCurrentSingleSelectionToMulti();
+
+  const zones = calculateZones().filter((zone) => patchSelectedZoneIds.has(zone.id));
+
+  if (zones.length < 2) {
+    showSaveStatus("Select multiple zones to merge");
+    draw();
+    return;
+  }
+
+  const categoryId = zones[0].categoryId;
+
+  if (!zones.every((zone) => zone.categoryId === categoryId)) {
+    showSaveStatus("Merge requires same category");
+    draw();
+    return;
+  }
+
+  const targetZoneId = zones[0].id;
+
+  zones.forEach((zone) => {
+    zone.cellKeys.forEach((key) => {
+      plan.cells[key].zoneId = targetZoneId;
+      plan.cells[key].categoryId = categoryId;
+    });
+  });
+
+  patchSelectedZoneIds.clear();
+  patchSelectedZoneIds.add(targetZoneId);
+  selectedZoneSignature = zoneSignature(targetZoneId);
+
+  persistPlan();
+  updateUi();
+}
+
+function deleteMultiSelectedZones() {
+  patchSelectedZoneIds.forEach((zoneId) => {
+    Object.keys(plan.cells).forEach((key) => {
+      if (plan.cells[key].zoneId === zoneId) {
+        delete plan.cells[key];
+      }
+    });
+  });
+
+  patchSelectedZoneIds.clear();
+  selectedZoneSignature = null;
+
+  persistPlan();
+  updateUi();
 }
 
 function drawPatchPreviews() {
@@ -290,19 +546,23 @@ function drawPatchPreviews() {
     drawRectanglePaintPreview(ctx, patchPaintDraft);
   }
 
-  if (patchCutDraft) {
-    drawGridEdgeCutPreview(ctx, patchCutDraft.edges);
+  if (patchSplitDraft) {
+    drawContinuousSplitPreview(ctx, patchSplitDraft.segments);
   }
+
+  drawMultiSelectionOverlay(ctx);
 
   ctx.restore();
 }
 
 function drawRectanglePaintPreview(targetCtx, draft) {
   const category = categoryById(draft.categoryId);
+
   const minX = Math.min(draft.startCell.x, draft.currentCell.x);
   const maxX = Math.max(draft.startCell.x, draft.currentCell.x);
   const minY = Math.min(draft.startCell.y, draft.currentCell.y);
   const maxY = Math.max(draft.startCell.y, draft.currentCell.y);
+
   const x = minX * CELL_PX;
   const y = minY * CELL_PX;
   const width = (maxX - minX + 1) * CELL_PX;
@@ -312,6 +572,7 @@ function drawRectanglePaintPreview(targetCtx, draft) {
   targetCtx.fillStyle = category.color;
   targetCtx.globalAlpha = 0.34;
   targetCtx.fillRect(x, y, width, height);
+
   targetCtx.globalAlpha = 1;
   targetCtx.strokeStyle = darkenColor(category.color, 0.25);
   targetCtx.lineWidth = 1.2;
@@ -321,10 +582,8 @@ function drawRectanglePaintPreview(targetCtx, draft) {
   targetCtx.restore();
 }
 
-function drawGridEdgeCutPreview(targetCtx, edgeIds) {
-  if (!edgeIds.size) {
-    return;
-  }
+function drawContinuousSplitPreview(targetCtx, segments) {
+  if (!segments.length) return;
 
   targetCtx.save();
   targetCtx.strokeStyle = "rgba(28, 27, 25, 0.82)";
@@ -332,25 +591,33 @@ function drawGridEdgeCutPreview(targetCtx, edgeIds) {
   targetCtx.setLineDash([7, 5]);
   targetCtx.beginPath();
 
-  edgeIds.forEach((edgeId) => {
-    const [a, b] = edgeId.split("|");
-    const [ax, ay] = parseCellKey(a);
-    const [bx, by] = parseCellKey(b);
-
-    if (ay === by && Math.abs(ax - bx) === 1) {
-      const x = Math.max(ax, bx) * CELL_PX;
-      const y = ay * CELL_PX;
-      targetCtx.moveTo(x, y);
-      targetCtx.lineTo(x, y + CELL_PX);
-    } else if (ax === bx && Math.abs(ay - by) === 1) {
-      const x = ax * CELL_PX;
-      const y = Math.max(ay, by) * CELL_PX;
-      targetCtx.moveTo(x, y);
-      targetCtx.lineTo(x + CELL_PX, y);
-    }
+  segments.forEach((segment) => {
+    targetCtx.moveTo(segment.a.x * CELL_PX, segment.a.y * CELL_PX);
+    targetCtx.lineTo(segment.b.x * CELL_PX, segment.b.y * CELL_PX);
   });
 
   targetCtx.stroke();
   targetCtx.setLineDash([]);
   targetCtx.restore();
+}
+
+function drawMultiSelectionOverlay(targetCtx) {
+  if (!patchSelectedZoneIds.size) return;
+
+  calculateZones()
+    .filter((zone) => patchSelectedZoneIds.has(zone.id))
+    .forEach((zone) => {
+      const loops = buildZoneBoundaryLoops(zone.cellKeys);
+      if (!loops.length) return;
+
+      targetCtx.save();
+      targetCtx.beginPath();
+      loops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+      targetCtx.strokeStyle = "rgba(28, 27, 25, 0.82)";
+      targetCtx.lineWidth = 1.8;
+      targetCtx.setLineDash([5, 4]);
+      targetCtx.stroke();
+      targetCtx.setLineDash([]);
+      targetCtx.restore();
+    });
 }
