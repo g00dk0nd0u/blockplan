@@ -587,10 +587,15 @@ function commitRectangleErase(draft) {
   const maxY = Math.max(draft.startCell.y, draft.currentCell.y);
 
   const keysToDelete = [];
+  const affectedZoneIds = new Set();
   for (let y = minY; y <= maxY; y += 1) {
     for (let x = minX; x <= maxX; x += 1) {
       const key = cellKey(x, y);
-      if (plan.cells[key]) keysToDelete.push(key);
+      const cell = plan.cells[key];
+      if (cell) {
+        keysToDelete.push(key);
+        if (cell.zoneId) affectedZoneIds.add(cell.zoneId);
+      }
     }
   }
 
@@ -603,6 +608,10 @@ function commitRectangleErase(draft) {
 
   keysToDelete.forEach((key) => {
     delete plan.cells[key];
+  });
+
+  affectedZoneIds.forEach((zoneId) => {
+    splitZoneIntoConnectedComponents(zoneId);
   });
 
   selectedZoneSignature = null;
