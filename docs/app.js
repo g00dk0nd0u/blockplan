@@ -5,7 +5,7 @@ const CELL_PX = 36;
 const CANVAS_BACKGROUND = "#E8E5E0";
 const GRID_DOT = "rgba(126, 116, 104, 0.36)";
 const GRID_DOT_SOFT = "rgba(126, 116, 104, 0.22)";
-const TOOLS = ["select", "paint", "copy", "cut", "erase", "merge"];
+const TOOLS = ["select", "paint", "copy", "cut", "erase", "merge", "rotate"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
@@ -97,7 +97,6 @@ function bindEvents() {
   document.getElementById("loadJsonButton").addEventListener("click", () => loadJsonInput.click());
   document.getElementById("exportPngButton").addEventListener("click", exportPng);
   document.getElementById("clearButton").addEventListener("click", clearPlan);
-  document.getElementById("rotateToolButton").addEventListener("click", rotateSelectedZone);
   document.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => {
       setActiveTool(button.dataset.tool);
@@ -146,7 +145,7 @@ function bindEvents() {
     } else if (key === "x") {
       setActiveTool("cut");
     } else if (key === "r") {
-      rotateSelectedZone();
+      setActiveTool("rotate");
     }
   });
 
@@ -292,7 +291,8 @@ function updateCanvasCursor() {
     paint: "crosshair",
     cut: "cell",
     erase: "no-drop",
-    merge: "alias"
+    merge: "alias",
+    rotate: "all-scroll"
   };
 
   canvas.style.cursor = cursorByTool[activeTool] || "default";
@@ -1133,11 +1133,32 @@ function rotateSelectedZone() {
     return;
   }
 
-  const rotatedKeys = rotateCellKeysClockwise(zone.cellKeys);
-  if (!canPlaceCellKeys(rotatedKeys, new Set(zone.cellKeys))) {
+  const result = applyZoneRotation(zone, 1);
+  if (result.status === "blocked") {
     showSaveStatus("Overlap blocked");
     draw();
     return;
+  }
+  persistPlan();
+  updateUi();
+}
+
+function applyZoneRotation(zone, steps) {
+  const normalizedSteps = normalizeQuarterTurns(steps);
+
+  if (!zone || normalizedSteps === 0) {
+    return {
+      status: "noop",
+      rotatedKeys: zone ? [...zone.cellKeys] : []
+    };
+  }
+
+  const rotatedKeys = rotateCellKeysClockwiseSteps(zone.cellKeys, normalizedSteps);
+  if (!canPlaceCellKeys(rotatedKeys, new Set(zone.cellKeys))) {
+    return {
+      status: "blocked",
+      rotatedKeys
+    };
   }
 
   zone.cellKeys.forEach((key) => delete plan.cells[key]);
@@ -1145,8 +1166,26 @@ function rotateSelectedZone() {
     plan.cells[key] = { categoryId: zone.categoryId, zoneId: zone.id };
   });
   selectedZoneSignature = zoneSignature(zone.id);
-  persistPlan();
-  updateUi();
+
+  return {
+    status: "rotated",
+    rotatedKeys
+  };
+}
+
+function rotateCellKeysClockwiseSteps(keys, steps) {
+  let rotatedKeys = [...keys];
+  const normalizedSteps = normalizeQuarterTurns(steps);
+
+  for (let index = 0; index < normalizedSteps; index += 1) {
+    rotatedKeys = rotateCellKeysClockwise(rotatedKeys);
+  }
+
+  return rotatedKeys;
+}
+
+function normalizeQuarterTurns(steps) {
+  return ((steps % 4) + 4) % 4;
 }
 
 function rotateCellKeysClockwise(keys) {

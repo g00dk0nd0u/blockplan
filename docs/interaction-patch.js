@@ -15,6 +15,7 @@ let patchPaintDraft = null;
 let patchSplitDraft = null;
 let patchEraseDraft = null;
 let patchMergeDraft = null;
+let patchRotateDraft = null;
 let patchOriginalDraw = null;
 
 const patchSelectedZoneIds = new Set();
@@ -183,6 +184,7 @@ function installPatchKeyboardShortcuts() {
         patchSplitDraft = null;
         patchEraseDraft = null;
         patchMergeDraft = null;
+        patchRotateDraft = null;
         transformDraft = null;
         cutDraft = null;
         paintStrokeZoneId = null;
@@ -229,9 +231,6 @@ function installUndoCaptureHandlers() {
         pushUndoState();
       }
 
-      if (event.key.toLowerCase() === "r" && selectedZoneSignature) {
-        pushUndoState();
-      }
     },
     true
   );
@@ -248,17 +247,6 @@ function installUndoCaptureHandlers() {
     },
     true
   );
-
-  const rotateButton = document.getElementById("rotateToolButton");
-  if (rotateButton) {
-    rotateButton.addEventListener(
-      "click",
-      () => {
-        if (selectedZoneSignature) pushUndoState();
-      },
-      true
-    );
-  }
 
   const clearButton = document.getElementById("clearButton");
   if (clearButton) {
@@ -296,6 +284,9 @@ function undoLastAction() {
 
     patchPaintDraft = null;
     patchSplitDraft = null;
+    patchEraseDraft = null;
+    patchMergeDraft = null;
+    patchRotateDraft = null;
     transformDraft = null;
     cutDraft = null;
     paintStrokeZoneId = null;
@@ -464,11 +455,41 @@ function onPatchPointerDown(event) {
 
     updateCellStatus(event);
     draw();
+    return;
+  }
+
+  if (activeTool === "rotate") {
+    stopOriginalPointerAction(event);
+    const cell = eventToCell(event);
+    const zone = findZoneAtCell(cell.x, cell.y);
+
+    if (!zone) {
+      patchRotateDraft = null;
+      draw();
+      return;
+    }
+
+    canvas.setPointerCapture(event.pointerId);
+    selectedZoneSignature = zone.signature;
+    patchSelectedZoneIds.clear();
+    patchRotateDraft = {
+      sourceZoneId: zone.id,
+      categoryId: zone.categoryId,
+      originalKeys: [...zone.cellKeys],
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      rotationSteps: 0,
+      previewKeys: [...zone.cellKeys],
+      isValid: true
+    };
+
+    updateCellStatus(event);
+    draw();
   }
 }
 
 function onPatchPointerMove(event) {
-  if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft) return;
+  if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft && !patchRotateDraft) return;
 
   stopOriginalPointerAction(event);
   updateCellStatus(event);
@@ -496,11 +517,17 @@ function onPatchPointerMove(event) {
   if (patchMergeDraft) {
     updateMergeDraft(event);
     draw();
+    return;
+  }
+
+  if (patchRotateDraft) {
+    updateRotateDraft(event);
+    draw();
   }
 }
 
 function onPatchPointerUp(event) {
-  if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft) return;
+  if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft && !patchRotateDraft) return;
 
   stopOriginalPointerAction(event);
 
@@ -531,6 +558,13 @@ function onPatchPointerUp(event) {
     commitDragMerge();
     patchMergeDraft = null;
     draw();
+    return;
+  }
+
+  if (patchRotateDraft) {
+    const draft = patchRotateDraft;
+    patchRotateDraft = null;
+    commitRotateDraft(draft);
   }
 }
 
@@ -949,6 +983,54 @@ function commitDragMerge() {
   showSaveStatus("Merged zones");
 }
 
+function updateRotateDraft(event) {
+  if (!patchRotateDraft) return;
+
+  const dx = event.clientX - patchRotateDraft.startClientX;
+  const dy = event.clientY - patchRotateDraft.startClientY;
+  const rotationSteps = Math.floor(Math.hypot(dx, dy) / 40) % 4;
+  const previewKeys = rotationSteps
+    ? rotateCellKeysClockwiseSteps(patchRotateDraft.originalKeys, rotationSteps)
+    : [...patchRotateDraft.originalKeys];
+
+  patchRotateDraft.rotationSteps = rotationSteps;
+  patchRotateDraft.previewKeys = previewKeys;
+  patchRotateDraft.isValid =
+    rotationSteps === 0 || canPlaceCellKeys(previewKeys, new Set(patchRotateDraft.originalKeys));
+}
+
+function commitRotateDraft(draft) {
+  if (!draft) return;
+
+  if (!draft.rotationSteps) {
+    draw();
+    return;
+  }
+
+  const zone = calculateZones().find((item) => item.id === draft.sourceZoneId);
+  if (!zone) {
+    selectedZoneSignature = null;
+    draw();
+    return;
+  }
+
+  const rotatedKeys = rotateCellKeysClockwiseSteps(zone.cellKeys, draft.rotationSteps);
+  if (!canPlaceCellKeys(rotatedKeys, new Set(zone.cellKeys))) {
+    selectedZoneSignature = null;
+    patchSelectedZoneIds.clear();
+    showSaveStatus("Rotation blocked");
+    draw();
+    return;
+  }
+
+  pushUndoState();
+  applyZoneRotation(zone, draft.rotationSteps);
+  selectedZoneSignature = null;
+  patchSelectedZoneIds.clear();
+  persistPlan();
+  updateUi();
+}
+
 function deleteMultiSelectedZones() {
   if (!patchSelectedZoneIds.size) return;
 
@@ -1092,6 +1174,10 @@ function drawPatchPreviews() {
     drawMergePreview(ctx, patchMergeDraft);
   }
 
+  if (patchRotateDraft) {
+    drawRotatePreview(ctx, patchRotateDraft);
+  }
+
   drawMultiSelectionOverlay(ctx);
 
   ctx.restore();
@@ -1196,6 +1282,28 @@ function drawRectangleErasePreview(targetCtx, draft) {
   targetCtx.lineWidth = 1.4;
   targetCtx.setLineDash([5, 4]);
   targetCtx.strokeRect(x, y, width, height);
+  targetCtx.setLineDash([]);
+  targetCtx.restore();
+}
+
+function drawRotatePreview(targetCtx, draft) {
+  if (!draft.rotationSteps || !draft.previewKeys.length) return;
+
+  const category = categoryById(draft.categoryId);
+  const loops = buildZoneBoundaryLoops(draft.previewKeys);
+  if (!loops.length) return;
+
+  targetCtx.save();
+  targetCtx.beginPath();
+  loops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+  targetCtx.fillStyle = category.color;
+  targetCtx.globalAlpha = draft.isValid ? 0.22 : 0.1;
+  targetCtx.fill("evenodd");
+  targetCtx.globalAlpha = 1;
+  targetCtx.strokeStyle = draft.isValid ? "rgba(28, 27, 25, 0.82)" : "rgba(176, 64, 64, 0.78)";
+  targetCtx.lineWidth = 1.8;
+  targetCtx.setLineDash([6, 5]);
+  targetCtx.stroke();
   targetCtx.setLineDash([]);
   targetCtx.restore();
 }
