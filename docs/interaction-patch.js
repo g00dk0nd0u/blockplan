@@ -472,12 +472,13 @@ function onPatchPointerDown(event) {
     canvas.setPointerCapture(event.pointerId);
     selectedZoneSignature = zone.signature;
     patchSelectedZoneIds.clear();
+    const center = getCellKeysCenter(zone.cellKeys);
     patchRotateDraft = {
       sourceZoneId: zone.id,
       categoryId: zone.categoryId,
       originalKeys: [...zone.cellKeys],
-      startClientX: event.clientX,
-      startClientY: event.clientY,
+      center,
+      startAngle: getAngleFromCenter(center, event),
       rotationSteps: 0,
       previewKeys: [...zone.cellKeys],
       isValid: true
@@ -986,17 +987,24 @@ function commitDragMerge() {
 function updateRotateDraft(event) {
   if (!patchRotateDraft) return;
 
-  const dx = event.clientX - patchRotateDraft.startClientX;
-  const dy = event.clientY - patchRotateDraft.startClientY;
-  const rotationSteps = Math.floor(Math.hypot(dx, dy) / 40) % 4;
+  const currentAngle = getAngleFromCenter(patchRotateDraft.center, event);
+  const delta = normalizeAngleDelta(currentAngle - patchRotateDraft.startAngle);
+  const rawSteps = Math.round(delta / (Math.PI / 2));
+  const rotationSteps = ((rawSteps % 4) + 4) % 4;
   const previewKeys = rotationSteps
-    ? rotateCellKeysClockwiseSteps(patchRotateDraft.originalKeys, rotationSteps)
+    ? rotateCellKeysAroundCenterClockwiseSteps(
+        patchRotateDraft.originalKeys,
+        rotationSteps,
+        patchRotateDraft.center
+      )
     : [...patchRotateDraft.originalKeys];
 
   patchRotateDraft.rotationSteps = rotationSteps;
   patchRotateDraft.previewKeys = previewKeys;
   patchRotateDraft.isValid =
-    rotationSteps === 0 || canPlaceCellKeys(previewKeys, new Set(patchRotateDraft.originalKeys));
+    rotationSteps === 0 ||
+    (previewKeys.length === patchRotateDraft.originalKeys.length &&
+      canPlaceCellKeys(previewKeys, new Set(patchRotateDraft.originalKeys)));
 }
 
 function commitRotateDraft(draft) {
@@ -1014,8 +1022,8 @@ function commitRotateDraft(draft) {
     return;
   }
 
-  const rotatedKeys = rotateCellKeysClockwiseSteps(zone.cellKeys, draft.rotationSteps);
-  if (!canPlaceCellKeys(rotatedKeys, new Set(zone.cellKeys))) {
+  const rotatedKeys = rotateCellKeysAroundCenterClockwiseSteps(zone.cellKeys, draft.rotationSteps, draft.center);
+  if (rotatedKeys.length !== zone.cellKeys.length || !canPlaceCellKeys(rotatedKeys, new Set(zone.cellKeys))) {
     selectedZoneSignature = null;
     patchSelectedZoneIds.clear();
     showSaveStatus("Rotation blocked");
@@ -1024,11 +1032,84 @@ function commitRotateDraft(draft) {
   }
 
   pushUndoState();
-  applyZoneRotation(zone, draft.rotationSteps);
+  zone.cellKeys.forEach((key) => delete plan.cells[key]);
+  rotatedKeys.forEach((key) => {
+    plan.cells[key] = { categoryId: zone.categoryId, zoneId: zone.id };
+  });
   selectedZoneSignature = null;
   patchSelectedZoneIds.clear();
   persistPlan();
   updateUi();
+}
+
+function getCellKeysCenter(cellKeys) {
+  const centers = cellKeys.map((key) => {
+    const [x, y] = parseCellKey(key);
+    return {
+      x: (x + 0.5) * CELL_PX,
+      y: (y + 0.5) * CELL_PX
+    };
+  });
+
+  const total = centers.reduce(
+    (sum, item) => ({ x: sum.x + item.x, y: sum.y + item.y }),
+    { x: 0, y: 0 }
+  );
+
+  return {
+    x: total.x / centers.length,
+    y: total.y / centers.length
+  };
+}
+
+function getAngleFromCenter(center, event) {
+  const world = eventToWorld(event);
+  return Math.atan2(world.y - center.y, world.x - center.x);
+}
+
+function normalizeAngleDelta(delta) {
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
+function rotateCellKeysAroundCenterClockwiseSteps(cellKeys, steps, center) {
+  const normalizedSteps = ((steps % 4) + 4) % 4;
+  if (!normalizedSteps) {
+    return [...cellKeys];
+  }
+
+  let rotated = cellKeys.map((key) => {
+    const [x, y] = parseCellKey(key);
+    return {
+      x,
+      y,
+      centerX: (x + 0.5) * CELL_PX,
+      centerY: (y + 0.5) * CELL_PX
+    };
+  });
+
+  for (let index = 0; index < normalizedSteps; index += 1) {
+    rotated = rotated.map((cell) => {
+      const dx = cell.centerX - center.x;
+      const dy = cell.centerY - center.y;
+      return {
+        x: 0,
+        y: 0,
+        centerX: center.x - dy,
+        centerY: center.y + dx
+      };
+    });
+  }
+
+  const rotatedKeys = rotated.map((cell) =>
+    cellKey(
+      Math.round(cell.centerX / CELL_PX - 0.5),
+      Math.round(cell.centerY / CELL_PX - 0.5)
+    )
+  );
+
+  return new Set(rotatedKeys).size === cellKeys.length ? rotatedKeys : [];
 }
 
 function deleteMultiSelectedZones() {
