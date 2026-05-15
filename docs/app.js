@@ -560,7 +560,10 @@ function commitTransformDraft() {
     plan.cells[key] = { categoryId: draft.categoryId, zoneId: destinationZoneId };
   });
 
-  selectedZoneSignature = zoneSignature(destinationZoneId);
+  selectedZoneSignature = null;
+  if (typeof clearTransformSelectionAfterCommit === "function") {
+    clearTransformSelectionAfterCommit();
+  }
   persistPlan();
   updateUi();
 }

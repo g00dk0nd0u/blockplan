@@ -22,6 +22,11 @@ const patchSelectedZoneIds = new Set();
 const patchUndoStack = [];
 const PATCH_UNDO_LIMIT = 80;
 
+function clearTransformSelectionAfterCommit() {
+  selectedZoneSignature = null;
+  patchSelectedZoneIds.clear();
+}
+
 (function setupInteractionPatch() {
   if (!canvas || !ctx) return;
 
