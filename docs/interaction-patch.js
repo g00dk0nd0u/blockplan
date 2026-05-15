@@ -555,6 +555,7 @@ function eventToGridPoint(event) {
 function commitRectanglePaint() {
   const draft = patchPaintDraft;
   pushUndoState();
+  const affectedZoneIds = new Set();
 
   const minX = Math.min(draft.startCell.x, draft.currentCell.x);
   const maxX = Math.max(draft.startCell.x, draft.currentCell.x);
@@ -563,12 +564,23 @@ function commitRectanglePaint() {
 
   for (let y = minY; y <= maxY; y += 1) {
     for (let x = minX; x <= maxX; x += 1) {
-      plan.cells[cellKey(x, y)] = {
+      const key = cellKey(x, y);
+      const existing = plan.cells[key];
+
+      if (existing && existing.zoneId && existing.zoneId !== draft.zoneId) {
+        affectedZoneIds.add(existing.zoneId);
+      }
+
+      plan.cells[key] = {
         categoryId: draft.categoryId,
         zoneId: draft.zoneId
       };
     }
   }
+
+  affectedZoneIds.forEach((zoneId) => {
+    splitZoneIntoConnectedComponents(zoneId);
+  });
 
   selectedZoneSignature = null;
   patchSelectedZoneIds.clear();
