@@ -154,6 +154,7 @@ button:active {
 }
 
 .right-sidebar {
+  background: var(--canvas-bg);
   border-left: 1px solid var(--line);
 }
 
@@ -320,6 +321,7 @@ h2 {
 }
 
 .dashboard {
+  background: rgba(247, 246, 244, 0.35);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
@@ -365,7 +367,7 @@ h2 {
 }
 
 .dashboard-table th {
-  background: var(--panel-soft);
+  background: rgba(242, 240, 237, 0.72);
   color: var(--muted);
   font-size: 10px;
   font-weight: 600;
@@ -491,6 +493,11 @@ h2 {
   min-height: 28px;
   min-width: 124px;
   padding: 0 26px 0 8px;
+}
+
+#moduleSize {
+  text-align: right;
+  text-align-last: right;
 }
 
 @media (max-width: 920px) {
