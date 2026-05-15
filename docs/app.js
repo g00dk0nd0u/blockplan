@@ -37,6 +37,7 @@ let selectedZoneSignature = null;
 let transformDraft = null;
 let paintStrokeZoneId = null;
 let cutDraft = null;
+let lastMiddleClickTime = 0;
 
 const view = {
   zoom: 1,
@@ -109,6 +110,7 @@ function bindEvents() {
   canvas.addEventListener("pointermove", onPointerMove);
   canvas.addEventListener("pointerup", endPointerAction);
   canvas.addEventListener("pointercancel", endPointerAction);
+  canvas.addEventListener("auxclick", onAuxClick);
   canvas.addEventListener("wheel", onWheel, { passive: false });
 
   window.addEventListener("keydown", (event) => {
@@ -406,6 +408,23 @@ function onWheel(event) {
   view.panY = mouseY - before.y * view.zoom;
   draw();
   updateZoomStatus();
+}
+
+function onAuxClick(event) {
+  if (event.button !== 1) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const now = Date.now();
+  if (now - lastMiddleClickTime < 320) {
+    lastMiddleClickTime = 0;
+    fitAllZonesToView();
+    return;
+  }
+
+  lastMiddleClickTime = now;
 }
 
 function paintAtEvent(event) {
@@ -1418,6 +1437,55 @@ function resetView() {
   view.panX = 0;
   view.panY = 0;
   draw();
+}
+
+function fitAllZonesToView() {
+  const keys = Object.keys(plan.cells);
+
+  if (!keys.length) {
+    view.zoom = 1;
+    view.panX = 0;
+    view.panY = 0;
+    draw();
+    updateZoomStatus();
+    showSaveStatus("Fit view");
+    return;
+  }
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  keys.forEach((key) => {
+    const [x, y] = parseCellKey(key);
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + 1);
+    maxY = Math.max(maxY, y + 1);
+  });
+
+  const rect = canvas.getBoundingClientRect();
+  const padding = 72;
+  const worldWidth = Math.max(1, (maxX - minX) * CELL_PX);
+  const worldHeight = Math.max(1, (maxY - minY) * CELL_PX);
+  const availableWidth = Math.max(1, rect.width - padding * 2);
+  const availableHeight = Math.max(1, rect.height - padding * 2);
+  const nextZoom = clamp(
+    Math.min(availableWidth / worldWidth, availableHeight / worldHeight),
+    0.25,
+    4
+  );
+  const worldCenterX = ((minX + maxX) / 2) * CELL_PX;
+  const worldCenterY = ((minY + maxY) / 2) * CELL_PX;
+
+  view.zoom = nextZoom;
+  view.panX = rect.width / 2 - worldCenterX * view.zoom;
+  view.panY = rect.height / 2 - worldCenterY * view.zoom;
+
+  draw();
+  updateZoomStatus();
+  showSaveStatus("Fit all zones");
 }
 
 function downloadBlob(blob, filename) {
