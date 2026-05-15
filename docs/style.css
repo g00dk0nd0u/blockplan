@@ -238,9 +238,20 @@ h2 {
   display: flex;
   font-size: 11px;
   font-weight: 500;
+  gap: 5px;
   justify-content: flex-start;
   min-height: 28px;
   padding: 0 8px;
+}
+
+.tool-icon {
+  align-items: center;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 1.5em;
+  justify-content: center;
+  line-height: 1;
+  width: 1em;
 }
 
 .tool-button:hover,
