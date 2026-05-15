@@ -899,6 +899,41 @@ function addCurrentSingleSelectionToMulti() {
   }
 }
 
+function areZonesTouching(zoneA, zoneB) {
+  const keysB = new Set(zoneB.cellKeys);
+
+  return zoneA.cellKeys.some((key) => {
+    const [x, y] = parseCellKey(key);
+    return (
+      keysB.has(cellKey(x + 1, y)) ||
+      keysB.has(cellKey(x - 1, y)) ||
+      keysB.has(cellKey(x, y + 1)) ||
+      keysB.has(cellKey(x, y - 1))
+    );
+  });
+}
+
+function areZonesContiguous(zones) {
+  if (zones.length < 2) return false;
+
+  const visited = new Set([zones[0].id]);
+  const stack = [zones[0]];
+
+  while (stack.length) {
+    const current = stack.pop();
+
+    zones.forEach((zone) => {
+      if (visited.has(zone.id)) return;
+      if (!areZonesTouching(current, zone)) return;
+
+      visited.add(zone.id);
+      stack.push(zone);
+    });
+  }
+
+  return visited.size === zones.length;
+}
+
 function mergeSelectedZones() {
   addCurrentSingleSelectionToMulti();
 
@@ -914,6 +949,12 @@ function mergeSelectedZones() {
 
   if (!zones.every((zone) => zone.categoryId === categoryId)) {
     showSaveStatus("Merge requires same category");
+    draw();
+    return;
+  }
+
+  if (!areZonesContiguous(zones)) {
+    showSaveStatus("Merge requires touching zones");
     draw();
     return;
   }
@@ -951,18 +992,17 @@ function updateMergeDraft(event) {
 
   patchMergeDraft.targetZoneId = targetZone.id;
   patchMergeDraft.targetCategoryId = targetZone.categoryId;
-  patchMergeDraft.isValid = targetZone.categoryId === patchMergeDraft.sourceCategoryId;
+  const sourceZone = calculateZones().find((zone) => zone.id === patchMergeDraft.sourceZoneId);
+  patchMergeDraft.isValid =
+    !!sourceZone &&
+    targetZone.categoryId === patchMergeDraft.sourceCategoryId &&
+    areZonesTouching(sourceZone, targetZone);
 }
 
 function commitDragMerge() {
   const draft = patchMergeDraft;
   if (!draft) return;
   if (!draft.targetZoneId) return;
-
-  if (!draft.isValid) {
-    showSaveStatus("Merge requires same category");
-    return;
-  }
 
   const sourceZone = calculateZones().find((zone) => zone.id === draft.sourceZoneId);
   const targetZone = calculateZones().find((zone) => zone.id === draft.targetZoneId);
@@ -971,6 +1011,12 @@ function commitDragMerge() {
   }
   if (sourceZone.categoryId !== targetZone.categoryId) {
     showSaveStatus("Merge requires same category");
+    return;
+  }
+
+  if (!areZonesTouching(sourceZone, targetZone)) {
+    showSaveStatus("Merge requires touching zones");
+    draw();
     return;
   }
 
