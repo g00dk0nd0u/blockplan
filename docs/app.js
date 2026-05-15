@@ -5,7 +5,7 @@ const CELL_PX = 36;
 const CANVAS_BACKGROUND = "#E8E5E0";
 const GRID_DOT = "rgba(126, 116, 104, 0.36)";
 const GRID_DOT_SOFT = "rgba(126, 116, 104, 0.22)";
-const TOOLS = ["select", "paint", "copy", "cut", "merge"];
+const TOOLS = ["select", "paint", "copy", "cut", "erase", "merge"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
@@ -290,6 +290,8 @@ function updateCanvasCursor() {
     canvas.style.cursor = "alias";
   } else if (activeTool === "cut") {
     canvas.style.cursor = "cell";
+  } else if (activeTool === "erase") {
+    canvas.style.cursor = "not-allowed";
   } else if (activeTool === "select" || activeTool === "copy") {
     canvas.style.cursor = "grab";
   } else {

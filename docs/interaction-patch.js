@@ -13,6 +13,7 @@
 
 let patchPaintDraft = null;
 let patchSplitDraft = null;
+let patchEraseDraft = null;
 let patchMergeDraft = null;
 let patchOriginalDraw = null;
 
@@ -180,6 +181,7 @@ function installPatchKeyboardShortcuts() {
       if (event.key === "Escape") {
         patchPaintDraft = null;
         patchSplitDraft = null;
+        patchEraseDraft = null;
         patchMergeDraft = null;
         transformDraft = null;
         cutDraft = null;
@@ -423,6 +425,23 @@ function onPatchPointerDown(event) {
     return;
   }
 
+  if (activeTool === "erase") {
+    stopOriginalPointerAction(event);
+    canvas.setPointerCapture(event.pointerId);
+
+    const startCell = eventToCell(event);
+    patchEraseDraft = {
+      startCell,
+      currentCell: startCell
+    };
+
+    selectedZoneSignature = null;
+    patchSelectedZoneIds.clear();
+    updateCellStatus(event);
+    draw();
+    return;
+  }
+
   if (activeTool === "merge") {
     stopOriginalPointerAction(event);
     const cell = eventToCell(event);
@@ -449,7 +468,7 @@ function onPatchPointerDown(event) {
 }
 
 function onPatchPointerMove(event) {
-  if (!patchPaintDraft && !patchSplitDraft && !patchMergeDraft) return;
+  if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft) return;
 
   stopOriginalPointerAction(event);
   updateCellStatus(event);
@@ -468,6 +487,12 @@ function onPatchPointerMove(event) {
     return;
   }
 
+  if (patchEraseDraft) {
+    patchEraseDraft.currentCell = eventToCell(event);
+    draw();
+    return;
+  }
+
   if (patchMergeDraft) {
     updateMergeDraft(event);
     draw();
@@ -475,7 +500,7 @@ function onPatchPointerMove(event) {
 }
 
 function onPatchPointerUp(event) {
-  if (!patchPaintDraft && !patchSplitDraft && !patchMergeDraft) return;
+  if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft) return;
 
   stopOriginalPointerAction(event);
 
@@ -492,6 +517,12 @@ function onPatchPointerUp(event) {
   if (patchSplitDraft) {
     commitGridEdgeSplit();
     patchSplitDraft = null;
+    return;
+  }
+
+  if (patchEraseDraft) {
+    commitRectangleErase();
+    patchEraseDraft = null;
     return;
   }
 
@@ -544,6 +575,42 @@ function commitRectanglePaint() {
 
   persistPlan();
   updateUi();
+}
+
+function commitRectangleErase() {
+  const draft = patchEraseDraft;
+  if (!draft) return;
+
+  const minX = Math.min(draft.startCell.x, draft.currentCell.x);
+  const maxX = Math.max(draft.startCell.x, draft.currentCell.x);
+  const minY = Math.min(draft.startCell.y, draft.currentCell.y);
+  const maxY = Math.max(draft.startCell.y, draft.currentCell.y);
+
+  const keysToDelete = [];
+  for (let y = minY; y <= maxY; y += 1) {
+    for (let x = minX; x <= maxX; x += 1) {
+      const key = cellKey(x, y);
+      if (plan.cells[key]) keysToDelete.push(key);
+    }
+  }
+
+  if (!keysToDelete.length) {
+    draw();
+    return;
+  }
+
+  pushUndoState();
+
+  keysToDelete.forEach((key) => {
+    delete plan.cells[key];
+  });
+
+  selectedZoneSignature = null;
+  patchSelectedZoneIds.clear();
+
+  persistPlan();
+  updateUi();
+  showSaveStatus("Erased cells");
 }
 
 function addContinuousSplitPath(fromPoint, toPoint) {
@@ -996,6 +1063,10 @@ function drawPatchPreviews() {
     drawContinuousSplitPreview(ctx, patchSplitDraft.segments);
   }
 
+  if (patchEraseDraft) {
+    drawRectangleErasePreview(ctx, patchEraseDraft);
+  }
+
   if (patchMergeDraft) {
     drawMergePreview(ctx, patchMergeDraft);
   }
@@ -1082,6 +1153,28 @@ function drawContinuousSplitPreview(targetCtx, segments) {
   });
 
   targetCtx.stroke();
+  targetCtx.setLineDash([]);
+  targetCtx.restore();
+}
+
+function drawRectangleErasePreview(targetCtx, draft) {
+  const minX = Math.min(draft.startCell.x, draft.currentCell.x);
+  const maxX = Math.max(draft.startCell.x, draft.currentCell.x);
+  const minY = Math.min(draft.startCell.y, draft.currentCell.y);
+  const maxY = Math.max(draft.startCell.y, draft.currentCell.y);
+
+  const x = minX * CELL_PX;
+  const y = minY * CELL_PX;
+  const width = (maxX - minX + 1) * CELL_PX;
+  const height = (maxY - minY + 1) * CELL_PX;
+
+  targetCtx.save();
+  targetCtx.fillStyle = "rgba(176, 64, 64, 0.10)";
+  targetCtx.fillRect(x, y, width, height);
+  targetCtx.strokeStyle = "rgba(176, 64, 64, 0.75)";
+  targetCtx.lineWidth = 1.4;
+  targetCtx.setLineDash([5, 4]);
+  targetCtx.strokeRect(x, y, width, height);
   targetCtx.setLineDash([]);
   targetCtx.restore();
 }
