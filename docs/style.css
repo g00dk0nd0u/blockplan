@@ -62,7 +62,7 @@ button:active {
 .app-shell {
   display: grid;
   grid-template-columns: minmax(320px, 1fr) 340px;
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100vh;
   min-height: 620px;
 }
@@ -74,8 +74,9 @@ button:active {
   display: grid;
   gap: 14px;
   grid-column: 1 / -1;
-  grid-template-columns: auto 1fr auto;
-  padding: 0 14px;
+  grid-template-columns: 190px minmax(0, 1fr) auto;
+  min-height: 52px;
+  padding: 10px 14px;
   position: relative;
   z-index: 2;
 }
@@ -84,7 +85,8 @@ button:active {
   align-items: center;
   display: flex;
   gap: 9px;
-  min-width: 0;
+  flex-shrink: 0;
+  min-width: 190px;
 }
 
 .brand-mark {
@@ -113,6 +115,7 @@ button:active {
 .file-actions {
   align-items: center;
   display: flex;
+  flex-shrink: 0;
   gap: 6px;
   grid-column: auto;
 }
@@ -121,6 +124,7 @@ button:active {
   align-items: center;
   display: flex;
   gap: 6px;
+  justify-self: start;
   min-width: 0;
   overflow-x: auto;
   padding-bottom: 2px;
