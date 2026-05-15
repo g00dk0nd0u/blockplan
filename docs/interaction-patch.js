@@ -771,12 +771,17 @@ function deleteMultiSelectedZones() {
 }
 
 function installCategoryReassignHandler() {
-  if (!categoryList) return;
+  installCategoryReassignTarget(categoryList, ".category-button");
+  installCategoryReassignTarget(dashboard, ".dashboard-category-row");
+}
 
-  categoryList.addEventListener(
+function installCategoryReassignTarget(container, rowSelector) {
+  if (!container) return;
+
+  container.addEventListener(
     "click",
     (event) => {
-      const row = event.target.closest(".category-button");
+      const row = event.target.closest(rowSelector);
       if (!row) return;
       if (event.target.closest(".category-name-input")) return;
 
@@ -794,13 +799,14 @@ function installCategoryReassignHandler() {
     true
   );
 
-  categoryList.addEventListener(
+  container.addEventListener(
     "keydown",
     (event) => {
       if (event.key !== "Enter" && event.key !== " ") return;
 
-      const row = event.target.closest(".category-button");
+      const row = event.target.closest(rowSelector);
       if (!row) return;
+      if (event.target.closest(".category-name-input")) return;
 
       const categoryId = row.dataset.categoryId;
       if (!categoryId) return;

@@ -168,6 +168,8 @@ function resizeCanvas() {
 }
 
 function renderCategoryList() {
+  if (!categoryList) return;
+
   categoryList.innerHTML = "";
   plan.categories.forEach((category) => {
     const row = document.createElement("div");
@@ -247,6 +249,7 @@ function startCategoryRename(categoryId) {
   activeCategoryId = categoryId;
   setActiveTool("paint");
   renderCategoryList();
+  renderDashboard();
 }
 
 function renameCategory(categoryId, rawName) {
@@ -912,13 +915,107 @@ function renderDashboard() {
   plan.categories.forEach((category) => {
     const categoryStats = stats[category.id] || { cellCount: 0, zoneCount: 0, areaSqm: 0 };
     const row = document.createElement("tr");
-    row.innerHTML = `
-      <td><span class="category-swatch" style="background:${category.color}"></span></td>
-      <td class="dashboard-category" title="${category.name}">${category.name}</td>
-      <td class="number-cell">${categoryStats.areaSqm.toFixed(2)}</td>
-      <td class="number-cell">${categoryStats.zoneCount}</td>
-      <td class="number-cell">${categoryStats.cellCount}</td>
-    `;
+    row.className = "dashboard-category-row";
+    row.dataset.categoryId = category.id;
+    row.tabIndex = 0;
+    row.setAttribute("role", "button");
+    row.setAttribute("aria-label", `Use ${category.name}`);
+
+    if (category.id === activeCategoryId) {
+      row.classList.add("is-active");
+    }
+    if (category.id === "unassigned") {
+      row.classList.add("is-unassigned");
+    }
+
+    const swatchCell = document.createElement("td");
+    const swatch = document.createElement("span");
+    swatch.className = "category-swatch";
+    swatch.style.background = category.color;
+    swatchCell.appendChild(swatch);
+
+    const nameCell = document.createElement("td");
+    nameCell.className = "dashboard-category";
+
+    if (editingCategoryId === category.id) {
+      const input = document.createElement("input");
+      input.className = "category-name-input";
+      input.value = category.name;
+      input.setAttribute("aria-label", `Rename ${category.name}`);
+      input.addEventListener("click", (event) => event.stopPropagation());
+      input.addEventListener("input", () => renameCategory(category.id, input.value));
+      input.addEventListener("blur", finishCategoryRename);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          input.blur();
+        }
+        if (event.key === "Escape") {
+          renameCategory(category.id, editingCategoryFallback);
+          input.blur();
+        }
+      });
+      nameCell.appendChild(input);
+      window.setTimeout(() => {
+        input.focus();
+        input.select();
+      });
+    } else {
+      const name = document.createElement("span");
+      name.className = "dashboard-category-label category-name";
+      name.textContent = category.name;
+      name.title = "Click to rename";
+      name.addEventListener("click", (event) => {
+        event.stopPropagation();
+        startCategoryRename(category.id);
+      });
+      nameCell.appendChild(name);
+    }
+
+    const areaCell = document.createElement("td");
+    areaCell.className = "number-cell";
+    areaCell.textContent = categoryStats.areaSqm.toFixed(2);
+
+    const zoneCell = document.createElement("td");
+    zoneCell.className = "number-cell";
+    zoneCell.textContent = String(categoryStats.zoneCount);
+
+    const countCell = document.createElement("td");
+    countCell.className = "number-cell";
+    countCell.textContent = String(categoryStats.cellCount);
+
+    row.appendChild(swatchCell);
+    row.appendChild(nameCell);
+    row.appendChild(areaCell);
+    row.appendChild(zoneCell);
+    row.appendChild(countCell);
+
+    row.addEventListener("click", () => {
+      const selectedZoneIds =
+        typeof getSelectedZoneIdsForReassign === "function" ? getSelectedZoneIdsForReassign() : new Set();
+
+      if (selectedZoneIds.size && typeof reassignSelectedZones === "function") {
+        reassignSelectedZones(category.id, selectedZoneIds);
+        return;
+      }
+
+      activeCategoryId = category.id;
+      setActiveTool("paint");
+      renderCategoryList();
+      renderDashboard();
+    });
+
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      if (event.target.closest(".category-name-input")) {
+        return;
+      }
+
+      event.preventDefault();
+      row.click();
+    });
+
     tbody.appendChild(row);
   });
 
