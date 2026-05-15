@@ -929,8 +929,9 @@ function renderDashboard() {
     }
 
     const swatchCell = document.createElement("td");
+    swatchCell.className = "dashboard-color-cell";
     const swatch = document.createElement("span");
-    swatch.className = "category-swatch";
+    swatch.className = "dashboard-color-swatch";
     swatch.style.background = category.color;
     swatchCell.appendChild(swatch);
 
@@ -1002,6 +1003,7 @@ function renderDashboard() {
       setActiveTool("paint");
       renderCategoryList();
       renderDashboard();
+      draw();
     });
 
     row.addEventListener("keydown", (event) => {
