@@ -608,7 +608,12 @@ function drawZones() {
   ctx.translate(view.panX, view.panY);
   ctx.scale(view.zoom, view.zoom);
   let zones = calculateZones();
-  if (transformDraft && transformDraft.mode === "move" && transformDraft.zoneId) {
+  if (
+    transformDraft &&
+    transformDraft.mode === "move" &&
+    transformDraft.zoneId &&
+    (transformDraft.dx !== 0 || transformDraft.dy !== 0)
+  ) {
     zones = zones.filter((zone) => zone.id !== transformDraft.zoneId);
   }
   drawZonesOnContext(ctx, zones, { showSelection: true, labelZoom: view.zoom });
