@@ -899,6 +899,17 @@ function addCurrentSingleSelectionToMulti() {
   }
 }
 
+function getCurrentSelectedZoneIds() {
+  const ids = new Set(patchSelectedZoneIds);
+
+  if (selectedZoneSignature) {
+    const selectedZone = calculateZones().find((zone) => zone.signature === selectedZoneSignature);
+    if (selectedZone) ids.add(selectedZone.id);
+  }
+
+  return ids;
+}
+
 function areZonesTouching(zoneA, zoneB) {
   const keysB = new Set(zoneB.cellKeys);
 
@@ -1237,16 +1248,7 @@ function installCategoryReassignTarget(container, rowSelector) {
 }
 
 function getSelectedZoneIdsForReassign() {
-  const targetZoneIds = new Set(patchSelectedZoneIds);
-
-  if (selectedZoneSignature) {
-    const selectedZone = calculateZones().find((zone) => zone.signature === selectedZoneSignature);
-    if (selectedZone) {
-      targetZoneIds.add(selectedZone.id);
-    }
-  }
-
-  return targetZoneIds;
+  return getCurrentSelectedZoneIds();
 }
 
 function reassignSelectedZones(categoryId, targetZoneIds) {
@@ -1460,3 +1462,5 @@ function drawMultiSelectionOverlay(targetCtx) {
       targetCtx.restore();
     });
 }
+
+window.getCurrentSelectedZoneIds = getCurrentSelectedZoneIds;

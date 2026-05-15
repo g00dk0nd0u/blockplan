@@ -508,16 +508,48 @@ function handleZoneToolPointerDown(event) {
   selectedZoneSignature = zone.signature;
 
   if (activeTool === "select" || activeTool === "copy") {
-    transformDraft = {
-      mode: activeTool === "copy" ? "copy" : "move",
-      categoryId: zone.categoryId,
-      zoneId: zone.id,
-      originalKeys: [...zone.cellKeys],
-      startCell: cell,
-      dx: 0,
-      dy: 0,
-      isValid: true
-    };
+    const selectedZoneIds =
+      typeof window.getCurrentSelectedZoneIds === "function" ? window.getCurrentSelectedZoneIds() : new Set();
+    const shouldMoveGroup =
+      activeTool === "select" && selectedZoneIds.size > 1 && selectedZoneIds.has(zone.id);
+
+    if (shouldMoveGroup) {
+      const zones = calculateZones().filter((item) => selectedZoneIds.has(item.id));
+      const originalItems = [];
+
+      zones.forEach((item) => {
+        item.cellKeys.forEach((key) => {
+          originalItems.push({
+            key,
+            categoryId: item.categoryId,
+            zoneId: item.id
+          });
+        });
+      });
+
+      transformDraft = {
+        mode: "move",
+        isGroup: true,
+        zoneIds: [...selectedZoneIds],
+        originalItems,
+        originalKeys: originalItems.map((item) => item.key),
+        startCell: cell,
+        dx: 0,
+        dy: 0,
+        isValid: true
+      };
+    } else {
+      transformDraft = {
+        mode: activeTool === "copy" ? "copy" : "move",
+        categoryId: zone.categoryId,
+        zoneId: zone.id,
+        originalKeys: [...zone.cellKeys],
+        startCell: cell,
+        dx: 0,
+        dy: 0,
+        isValid: true
+      };
+    }
   }
 
   draw();
@@ -549,6 +581,27 @@ function commitTransformDraft() {
   if (!canPlaceCellKeys(destinationKeys, ignoreKeys)) {
     showSaveStatus("Overlap blocked");
     draw();
+    return;
+  }
+
+  if (draft.isGroup) {
+    draft.originalKeys.forEach((key) => delete plan.cells[key]);
+
+    draft.originalItems.forEach((item) => {
+      const [x, y] = parseCellKey(item.key);
+      const nextKey = cellKey(x + draft.dx, y + draft.dy);
+      plan.cells[nextKey] = {
+        categoryId: item.categoryId,
+        zoneId: item.zoneId
+      };
+    });
+
+    selectedZoneSignature = null;
+    if (typeof clearTransformSelectionAfterCommit === "function") {
+      clearTransformSelectionAfterCommit();
+    }
+    persistPlan();
+    updateUi();
     return;
   }
 
@@ -614,10 +667,14 @@ function drawZones() {
   if (
     transformDraft &&
     transformDraft.mode === "move" &&
-    transformDraft.zoneId &&
     (transformDraft.dx !== 0 || transformDraft.dy !== 0)
   ) {
-    zones = zones.filter((zone) => zone.id !== transformDraft.zoneId);
+    if (transformDraft.isGroup && transformDraft.zoneIds) {
+      const movingZoneIds = new Set(transformDraft.zoneIds);
+      zones = zones.filter((zone) => !movingZoneIds.has(zone.id));
+    } else if (transformDraft.zoneId) {
+      zones = zones.filter((zone) => zone.id !== transformDraft.zoneId);
+    }
   }
   drawZonesOnContext(ctx, zones, { showSelection: true, labelZoom: view.zoom });
   drawTransformDraft(ctx);
@@ -671,6 +728,42 @@ function drawZonesOnContext(targetCtx, zones, options = {}) {
 
 function drawTransformDraft(targetCtx) {
   if (!transformDraft || (!transformDraft.dx && !transformDraft.dy)) {
+    return;
+  }
+
+  if (transformDraft.isGroup) {
+    const zoneMap = new Map();
+
+    transformDraft.originalItems.forEach((item) => {
+      const [x, y] = parseCellKey(item.key);
+      const nextKey = cellKey(x + transformDraft.dx, y + transformDraft.dy);
+      if (!zoneMap.has(item.zoneId)) {
+        zoneMap.set(item.zoneId, {
+          categoryId: item.categoryId,
+          keys: []
+        });
+      }
+      zoneMap.get(item.zoneId).keys.push(nextKey);
+    });
+
+    zoneMap.forEach((zone) => {
+      const category = categoryById(zone.categoryId);
+      const loops = buildZoneBoundaryLoops(zone.keys);
+
+      targetCtx.save();
+      targetCtx.beginPath();
+      loops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+      targetCtx.fillStyle = category.color;
+      targetCtx.globalAlpha = transformDraft.isValid ? 0.38 : 0.16;
+      targetCtx.fill("evenodd");
+      targetCtx.globalAlpha = 1;
+      targetCtx.strokeStyle = transformDraft.isValid ? "#1C1B19" : "#B04040";
+      targetCtx.lineWidth = 3;
+      targetCtx.setLineDash([7, 5]);
+      targetCtx.stroke();
+      targetCtx.setLineDash([]);
+      targetCtx.restore();
+    });
     return;
   }
 
