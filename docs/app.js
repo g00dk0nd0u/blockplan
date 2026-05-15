@@ -5,7 +5,7 @@ const CELL_PX = 36;
 const CANVAS_BACKGROUND = "#E8E5E0";
 const GRID_DOT = "rgba(126, 116, 104, 0.36)";
 const GRID_DOT_SOFT = "rgba(126, 116, 104, 0.22)";
-const TOOLS = ["select", "paint", "copy", "cut"];
+const TOOLS = ["select", "paint", "copy", "cut", "merge"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
@@ -286,6 +286,8 @@ function setActiveTool(tool) {
 function updateCanvasCursor() {
   if (activeTool === "paint") {
     canvas.style.cursor = "crosshair";
+  } else if (activeTool === "merge") {
+    canvas.style.cursor = "alias";
   } else if (activeTool === "cut") {
     canvas.style.cursor = "cell";
   } else if (activeTool === "select" || activeTool === "copy") {

@@ -61,7 +61,7 @@ button:active {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 132px minmax(320px, 1fr) 340px;
+  grid-template-columns: minmax(320px, 1fr) 340px;
   grid-template-rows: 52px minmax(0, 1fr);
   height: 100vh;
   min-height: 620px;
@@ -74,7 +74,7 @@ button:active {
   display: grid;
   gap: 14px;
   grid-column: 1 / -1;
-  grid-template-columns: 132px 1fr auto;
+  grid-template-columns: auto 1fr auto;
   padding: 0 14px;
   position: relative;
   z-index: 2;
@@ -111,9 +111,23 @@ button:active {
 }
 
 .file-actions {
+  align-items: center;
   display: flex;
   gap: 6px;
-  grid-column: 3;
+  grid-column: auto;
+}
+
+.tool-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.tool-actions .tool-button {
+  flex: 0 0 auto;
 }
 
 #saveJsonButton {
@@ -133,10 +147,6 @@ button:active {
   overflow: auto;
   padding: 14px;
   z-index: 1;
-}
-
-.left-sidebar {
-  border-right: 1px solid var(--line);
 }
 
 .right-sidebar {
@@ -214,11 +224,6 @@ h2 {
   border-radius: 2px;
   height: 14px;
   width: 14px;
-}
-
-.tool-grid {
-  display: grid;
-  gap: 5px;
 }
 
 .tool-button {
@@ -475,7 +480,7 @@ h2 {
 
 @media (max-width: 920px) {
   .app-shell {
-    grid-template-columns: 132px minmax(320px, 1fr);
+    grid-template-columns: minmax(320px, 1fr);
     grid-template-rows: auto minmax(520px, 1fr) auto;
     height: auto;
     min-height: 100vh;
@@ -486,9 +491,11 @@ h2 {
     padding: 14px;
   }
 
+  .tool-actions,
   .file-actions {
     flex-wrap: wrap;
     grid-column: 1;
+    overflow-x: visible;
   }
 
   .right-sidebar {
@@ -503,7 +510,6 @@ h2 {
     grid-template-columns: 1fr;
   }
 
-  .left-sidebar,
   .right-sidebar {
     border: 0;
   }

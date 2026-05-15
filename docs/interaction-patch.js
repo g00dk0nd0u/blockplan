@@ -13,6 +13,7 @@
 
 let patchPaintDraft = null;
 let patchSplitDraft = null;
+let patchMergeDraft = null;
 let patchOriginalDraw = null;
 
 const patchSelectedZoneIds = new Set();
@@ -136,20 +137,38 @@ function hslToHex(h, s, l) {
 }
 
 function installMergeButton() {
-  const toolGrid = document.querySelector(".tool-grid");
+  let button = document.getElementById("mergeToolButton");
   const rotateButton = document.getElementById("rotateToolButton");
 
-  if (!toolGrid || document.getElementById("mergeToolButton")) return;
+  if (!button) {
+    const toolGrid = document.querySelector(".tool-grid");
+    if (!toolGrid) return;
 
-  const button = document.createElement("button");
-  button.id = "mergeToolButton";
-  button.type = "button";
-  button.className = "tool-button";
-  button.textContent = "⊕ Merge";
-  button.title = "Merge selected zones";
-  button.addEventListener("click", mergeSelectedZones);
+    button = document.createElement("button");
+    button.id = "mergeToolButton";
+    button.type = "button";
+    button.className = "tool-button";
+    button.textContent = "⊕ Merge";
+    button.title = "Merge selected zones";
+    toolGrid.insertBefore(button, rotateButton || null);
+  }
 
-  toolGrid.insertBefore(button, rotateButton || null);
+  button.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      const selectedCount = getSelectedZoneIdsForReassign().size;
+      if (selectedCount >= 2) {
+        mergeSelectedZones();
+      } else {
+        setActiveTool("merge");
+        showSaveStatus("Merge tool ready");
+      }
+    },
+    true
+  );
 }
 
 function installPatchKeyboardShortcuts() {
@@ -161,6 +180,7 @@ function installPatchKeyboardShortcuts() {
       if (event.key === "Escape") {
         patchPaintDraft = null;
         patchSplitDraft = null;
+        patchMergeDraft = null;
         transformDraft = null;
         cutDraft = null;
         paintStrokeZoneId = null;
@@ -400,11 +420,36 @@ function onPatchPointerDown(event) {
     cutDraft = null;
     updateCellStatus(event);
     draw();
+    return;
+  }
+
+  if (activeTool === "merge") {
+    stopOriginalPointerAction(event);
+    canvas.setPointerCapture(event.pointerId);
+
+    const cell = eventToCell(event);
+    const sourceZone = findZoneAtCell(cell.x, cell.y);
+    if (!sourceZone) {
+      patchMergeDraft = null;
+      draw();
+      return;
+    }
+
+    patchMergeDraft = {
+      sourceZoneId: sourceZone.id,
+      sourceCategoryId: sourceZone.categoryId,
+      targetZoneId: null,
+      targetCategoryId: null,
+      isValid: false
+    };
+
+    updateCellStatus(event);
+    draw();
   }
 }
 
 function onPatchPointerMove(event) {
-  if (!patchPaintDraft && !patchSplitDraft) return;
+  if (!patchPaintDraft && !patchSplitDraft && !patchMergeDraft) return;
 
   stopOriginalPointerAction(event);
   updateCellStatus(event);
@@ -420,11 +465,17 @@ function onPatchPointerMove(event) {
     addContinuousSplitPath(patchSplitDraft.lastPoint, point);
     patchSplitDraft.lastPoint = point;
     draw();
+    return;
+  }
+
+  if (patchMergeDraft) {
+    updateMergeDraft(event);
+    draw();
   }
 }
 
 function onPatchPointerUp(event) {
-  if (!patchPaintDraft && !patchSplitDraft) return;
+  if (!patchPaintDraft && !patchSplitDraft && !patchMergeDraft) return;
 
   stopOriginalPointerAction(event);
 
@@ -441,6 +492,13 @@ function onPatchPointerUp(event) {
   if (patchSplitDraft) {
     commitGridEdgeSplit();
     patchSplitDraft = null;
+    return;
+  }
+
+  if (patchMergeDraft) {
+    commitDragMerge();
+    patchMergeDraft = null;
+    draw();
   }
 }
 
@@ -750,6 +808,59 @@ function mergeSelectedZones() {
   updateUi();
 }
 
+function updateMergeDraft(event) {
+  if (!patchMergeDraft) return;
+
+  const cell = eventToCell(event);
+  const targetZone = findZoneAtCell(cell.x, cell.y);
+
+  if (!targetZone || targetZone.id === patchMergeDraft.sourceZoneId) {
+    patchMergeDraft.targetZoneId = null;
+    patchMergeDraft.targetCategoryId = null;
+    patchMergeDraft.isValid = false;
+    return;
+  }
+
+  patchMergeDraft.targetZoneId = targetZone.id;
+  patchMergeDraft.targetCategoryId = targetZone.categoryId;
+  patchMergeDraft.isValid = targetZone.categoryId === patchMergeDraft.sourceCategoryId;
+}
+
+function commitDragMerge() {
+  const draft = patchMergeDraft;
+  if (!draft) return;
+  if (!draft.targetZoneId) return;
+
+  if (!draft.isValid) {
+    showSaveStatus("Merge requires same category");
+    return;
+  }
+
+  const sourceZone = calculateZones().find((zone) => zone.id === draft.sourceZoneId);
+  const targetZone = calculateZones().find((zone) => zone.id === draft.targetZoneId);
+  if (!sourceZone || !targetZone || sourceZone.id === targetZone.id) {
+    return;
+  }
+  if (sourceZone.categoryId !== targetZone.categoryId) {
+    showSaveStatus("Merge requires same category");
+    return;
+  }
+
+  pushUndoState();
+
+  targetZone.cellKeys.forEach((key) => {
+    if (!plan.cells[key]) return;
+    plan.cells[key].zoneId = sourceZone.id;
+    plan.cells[key].categoryId = sourceZone.categoryId;
+  });
+
+  selectedZoneSignature = null;
+  patchSelectedZoneIds.clear();
+  persistPlan();
+  updateUi();
+  showSaveStatus("Merged zones");
+}
+
 function deleteMultiSelectedZones() {
   if (!patchSelectedZoneIds.size) return;
 
@@ -885,9 +996,48 @@ function drawPatchPreviews() {
     drawContinuousSplitPreview(ctx, patchSplitDraft.segments);
   }
 
+  if (patchMergeDraft) {
+    drawMergePreview(ctx, patchMergeDraft);
+  }
+
   drawMultiSelectionOverlay(ctx);
 
   ctx.restore();
+}
+
+function drawMergePreview(targetCtx, draft) {
+  const sourceZone = calculateZones().find((zone) => zone.id === draft.sourceZoneId);
+  if (!sourceZone) return;
+
+  const sourceLoops = buildZoneBoundaryLoops(sourceZone.cellKeys);
+  if (sourceLoops.length) {
+    targetCtx.save();
+    targetCtx.beginPath();
+    sourceLoops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+    targetCtx.strokeStyle = "rgba(28, 27, 25, 0.82)";
+    targetCtx.lineWidth = 1.8;
+    targetCtx.setLineDash([6, 5]);
+    targetCtx.stroke();
+    targetCtx.setLineDash([]);
+    targetCtx.restore();
+  }
+
+  if (!draft.targetZoneId) return;
+
+  const targetZone = calculateZones().find((zone) => zone.id === draft.targetZoneId);
+  if (!targetZone) return;
+  const targetLoops = buildZoneBoundaryLoops(targetZone.cellKeys);
+  if (!targetLoops.length) return;
+
+  targetCtx.save();
+  targetCtx.beginPath();
+  targetLoops.forEach((loop) => addRoundedLoopToPath(targetCtx, loop));
+  targetCtx.strokeStyle = draft.isValid ? "rgba(28, 27, 25, 0.82)" : "rgba(176, 64, 64, 0.78)";
+  targetCtx.lineWidth = 1.8;
+  targetCtx.setLineDash([6, 5]);
+  targetCtx.stroke();
+  targetCtx.setLineDash([]);
+  targetCtx.restore();
 }
 
 function drawRectanglePaintPreview(targetCtx, draft) {

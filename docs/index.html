@@ -21,6 +21,14 @@
           </div>
         </div>
 
+        <div class="tool-actions" aria-label="Tools">
+          <button id="selectToolButton" type="button" class="tool-button" data-tool="select">↖ Select / Move</button>
+          <button id="copyToolButton" type="button" class="tool-button" data-tool="copy">⧉ Copy</button>
+          <button id="cutToolButton" type="button" class="tool-button" data-tool="cut">⌁ Cut</button>
+          <button id="mergeToolButton" type="button" class="tool-button" data-tool="merge">⊕ Merge</button>
+          <button id="rotateToolButton" type="button" class="tool-button" data-action="rotate">⟳ Rotate 90°</button>
+        </div>
+
         <div class="file-actions" aria-label="File actions">
           <button id="clearButton" type="button">Clear Plan</button>
           <button id="saveJsonButton" type="button">Save JSON</button>
@@ -29,18 +37,6 @@
           <input id="loadJsonInput" type="file" accept="application/json,.json" hidden>
         </div>
       </header>
-
-      <aside class="left-sidebar panel">
-        <section>
-          <h2>Tools</h2>
-          <div class="tool-grid">
-            <button id="selectToolButton" type="button" class="tool-button" data-tool="select">↖ Select / Move</button>
-            <button id="copyToolButton" type="button" class="tool-button" data-tool="copy">⧉ Copy</button>
-            <button id="cutToolButton" type="button" class="tool-button" data-tool="cut">🔪 Cut</button>
-            <button id="rotateToolButton" type="button" class="tool-button" data-action="rotate">⟳ Rotate 90°</button>
-          </div>
-        </section>
-      </aside>
 
       <main class="canvas-panel" aria-label="Planning canvas">
         <canvas id="planningCanvas"></canvas>
