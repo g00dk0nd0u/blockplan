@@ -501,6 +501,9 @@ function handleZoneToolPointerDown(event) {
   if (!zone) {
     selectedZoneSignature = null;
     transformDraft = null;
+    if (typeof clearTransformSelectionAfterCommit === "function") {
+      clearTransformSelectionAfterCommit();
+    }
     draw();
     return;
   }

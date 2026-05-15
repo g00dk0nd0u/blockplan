@@ -369,7 +369,7 @@ function distanceToNearestEmptyCell(x, y, cellSet) {
 function onPatchPointerDown(event) {
   if (event.button !== 0 || isSpaceDown) return;
 
-  if (activeTool === "select" && event.shiftKey) {
+  if ((activeTool === "select" || activeTool === "copy") && event.shiftKey) {
     stopOriginalPointerAction(event);
     toggleZoneMultiSelection(event);
     return;
