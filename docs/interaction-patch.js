@@ -521,8 +521,9 @@ function onPatchPointerUp(event) {
   }
 
   if (patchEraseDraft) {
-    commitRectangleErase();
+    const draft = patchEraseDraft;
     patchEraseDraft = null;
+    commitRectangleErase(draft);
     return;
   }
 
@@ -577,8 +578,7 @@ function commitRectanglePaint() {
   updateUi();
 }
 
-function commitRectangleErase() {
-  const draft = patchEraseDraft;
+function commitRectangleErase(draft) {
   if (!draft) return;
 
   const minX = Math.min(draft.startCell.x, draft.currentCell.x);
