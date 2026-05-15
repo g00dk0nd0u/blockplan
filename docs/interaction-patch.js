@@ -425,8 +425,6 @@ function onPatchPointerDown(event) {
 
   if (activeTool === "merge") {
     stopOriginalPointerAction(event);
-    canvas.setPointerCapture(event.pointerId);
-
     const cell = eventToCell(event);
     const sourceZone = findZoneAtCell(cell.x, cell.y);
     if (!sourceZone) {
@@ -434,6 +432,8 @@ function onPatchPointerDown(event) {
       draw();
       return;
     }
+
+    canvas.setPointerCapture(event.pointerId);
 
     patchMergeDraft = {
       sourceZoneId: sourceZone.id,
