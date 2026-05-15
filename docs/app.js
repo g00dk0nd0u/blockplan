@@ -286,19 +286,16 @@ function setActiveTool(tool) {
 }
 
 function updateCanvasCursor() {
-  if (activeTool === "paint") {
-    canvas.style.cursor = "crosshair";
-  } else if (activeTool === "merge") {
-    canvas.style.cursor = "alias";
-  } else if (activeTool === "cut") {
-    canvas.style.cursor = "cell";
-  } else if (activeTool === "erase") {
-    canvas.style.cursor = "not-allowed";
-  } else if (activeTool === "select" || activeTool === "copy") {
-    canvas.style.cursor = "grab";
-  } else {
-    canvas.style.cursor = "default";
-  }
+  const cursorByTool = {
+    select: "grab",
+    copy: "copy",
+    paint: "crosshair",
+    cut: "cell",
+    erase: "no-drop",
+    merge: "alias"
+  };
+
+  canvas.style.cursor = cursorByTool[activeTool] || "default";
 }
 
 function cancelCurrentOperation() {
