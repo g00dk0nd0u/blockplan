@@ -510,10 +510,12 @@ function handleZoneToolPointerDown(event) {
   if (activeTool === "select" || activeTool === "copy") {
     const selectedZoneIds =
       typeof window.getCurrentSelectedZoneIds === "function" ? window.getCurrentSelectedZoneIds() : new Set();
-    const shouldMoveGroup =
-      activeTool === "select" && selectedZoneIds.size > 1 && selectedZoneIds.has(zone.id);
+    const shouldTransformGroup =
+      (activeTool === "select" || activeTool === "copy") &&
+      selectedZoneIds.size > 1 &&
+      selectedZoneIds.has(zone.id);
 
-    if (shouldMoveGroup) {
+    if (shouldTransformGroup) {
       const zones = calculateZones().filter((item) => selectedZoneIds.has(item.id));
       const originalItems = [];
 
@@ -528,7 +530,7 @@ function handleZoneToolPointerDown(event) {
       });
 
       transformDraft = {
-        mode: "move",
+        mode: activeTool === "copy" ? "copy" : "move",
         isGroup: true,
         zoneIds: [...selectedZoneIds],
         originalItems,
@@ -585,14 +587,27 @@ function commitTransformDraft() {
   }
 
   if (draft.isGroup) {
-    draft.originalKeys.forEach((key) => delete plan.cells[key]);
+    const copiedZoneIdMap = new Map();
+
+    if (draft.mode === "move") {
+      draft.originalKeys.forEach((key) => delete plan.cells[key]);
+    }
 
     draft.originalItems.forEach((item) => {
       const [x, y] = parseCellKey(item.key);
       const nextKey = cellKey(x + draft.dx, y + draft.dy);
+
+      let nextZoneId = item.zoneId;
+      if (draft.mode === "copy") {
+        if (!copiedZoneIdMap.has(item.zoneId)) {
+          copiedZoneIdMap.set(item.zoneId, createZoneId());
+        }
+        nextZoneId = copiedZoneIdMap.get(item.zoneId);
+      }
+
       plan.cells[nextKey] = {
         categoryId: item.categoryId,
-        zoneId: item.zoneId
+        zoneId: nextZoneId
       };
     });
 
