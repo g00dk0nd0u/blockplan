@@ -6,6 +6,10 @@ Public app URL:
 
 https://g00dk0nd0u.github.io/blockplan/
 
+## Sample Workspace
+
+<img src="docs/assets/blockplan-sample.svg" alt="BlockPlan sample workspace" width="100%">
+
 ## Basic Usage
 
 Open the public app URL, or open `docs/index.html` directly in a browser.
