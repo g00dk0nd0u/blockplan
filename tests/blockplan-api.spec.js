@@ -8,7 +8,8 @@ test("BlockPlan hidden API can create and validate a plan", async ({ page }) => 
   await page.goto(appUrl);
   await expect(page.locator("[data-testid='planning-canvas']")).toBeVisible();
 
-  await expect.poll(() => page.evaluate(() => window.BlockPlanAPI && window.BlockPlanAPI.version)).toBe(1);
+  const apiVersion = await page.evaluate(() => window.BlockPlanAPI && window.BlockPlanAPI.version);
+  expect(apiVersion).toBe(1);
 
   const summary = await page.evaluate(() => {
     const api = window.BlockPlanAPI;
@@ -24,6 +25,12 @@ test("BlockPlan hidden API can create and validate a plan", async ({ page }) => 
     if (!c.ok) return c;
     return api.getStateSummary();
   });
+  // Read methods intentionally return direct data (not { ok: true, value }) under the current API contract.
+  expect(summary).not.toHaveProperty("ok");
+  expect(summary).toHaveProperty("moduleSizeMm", 3600);
+  expect(summary).toHaveProperty("dashboard");
+  expect(summary).toHaveProperty("bounds");
+  expect(summary).toHaveProperty("zones");
   expect(summary.dashboard.office.cellCount).toBe(12);
   expect(summary.dashboard.meeting.cellCount).toBe(6);
   expect(summary.dashboard.lab.cellCount).toBe(6);
@@ -38,14 +45,17 @@ test("BlockPlan hidden API can create and validate a plan", async ({ page }) => 
   await page.locator("[data-testid='planning-canvas']").screenshot({ path: "test-results/blockplan-api-sample.png" });
 
   const dataUrl = await page.evaluate(() => window.BlockPlanAPI.exportPngDataUrl());
+  expect(typeof dataUrl).toBe("string");
   expect(dataUrl).toMatch(/^data:image\/png;base64,/);
 
   fs.mkdirSync("test-results", { recursive: true });
   fs.writeFileSync("test-results/blockplan-api-summary.json", JSON.stringify(summary, null, 2));
 
   await page.reload();
-  await expect.poll(() => page.evaluate(() => window.BlockPlanAPI && window.BlockPlanAPI.version)).toBe(1);
+  const reloadedApiVersion = await page.evaluate(() => window.BlockPlanAPI && window.BlockPlanAPI.version);
+  expect(reloadedApiVersion).toBe(1);
   const restored = await page.evaluate(() => window.BlockPlanAPI.getStateSummary());
+  expect(restored).not.toHaveProperty("ok");
   expect(restored.dashboard.office.cellCount).toBe(12);
   expect(restored.dashboard.meeting.cellCount).toBe(6);
   expect(restored.dashboard.lab.cellCount).toBe(6);
