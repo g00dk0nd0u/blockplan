@@ -17,11 +17,22 @@ const categories = [
 ];
 const defaultCategoryColors = new Map(categories.map((category) => [category.id, category.color]));
 
+const defaultUnderlay = {
+  name: "",
+  type: "image",
+  visible: true,
+  locked: true,
+  opacity: 0.5,
+  transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+  needsRelink: false
+};
+
 const defaultPlan = {
   version: 1,
   moduleSizeMm: 3600,
   categories,
-  cells: {}
+  cells: {},
+  underlay: null
 };
 
 let plan = clonePlan(defaultPlan);
@@ -38,6 +49,9 @@ let transformDraft = null;
 let paintStrokeZoneId = null;
 let cutDraft = null;
 let lastMiddleClickTime = 0;
+let underlayObjectUrl = null;
+let underlaySessionKey = 0;
+let underlayOpacityUndoArmed = false;
 
 const view = {
   zoom: 1,
@@ -55,6 +69,15 @@ const saveStatus = document.getElementById("saveStatus");
 const zoomStatus = document.getElementById("zoomStatus");
 const cellStatus = document.getElementById("cellStatus");
 const loadJsonInput = document.getElementById("loadJsonInput");
+const underlayLayer = document.getElementById("underlayLayer");
+const underlayInput = document.getElementById("underlayInput");
+const linkUnderlayButton = document.getElementById("linkUnderlayButton");
+const replaceUnderlayButton = document.getElementById("replaceUnderlayButton");
+const toggleUnderlayButton = document.getElementById("toggleUnderlayButton");
+const lockUnderlayButton = document.getElementById("lockUnderlayButton");
+const underlayOpacity = document.getElementById("underlayOpacity");
+const underlayOpacityValue = document.getElementById("underlayOpacityValue");
+const underlayStatus = document.getElementById("underlayStatus");
 
 function clonePlan(source) {
   return {
@@ -63,7 +86,16 @@ function clonePlan(source) {
     categories: source.categories ? source.categories.map((item) => ({ ...item })) : categories,
     cells: source.cells
       ? Object.fromEntries(Object.entries(source.cells).map(([key, cell]) => [key, { ...cell }]))
-      : {}
+      : {},
+    underlay: source.underlay ? cloneUnderlay(source.underlay) : null
+  };
+}
+
+function cloneUnderlay(source) {
+  return {
+    ...defaultUnderlay,
+    ...source,
+    transform: { ...defaultUnderlay.transform, ...(source.transform || {}) }
   };
 }
 
@@ -97,12 +129,23 @@ function bindEvents() {
   document.getElementById("loadJsonButton").addEventListener("click", () => loadJsonInput.click());
   document.getElementById("exportPngButton").addEventListener("click", exportPng);
   document.getElementById("clearButton").addEventListener("click", clearPlan);
+  if (linkUnderlayButton) linkUnderlayButton.addEventListener("click", () => underlayInput.click());
+  if (replaceUnderlayButton) replaceUnderlayButton.addEventListener("click", () => underlayInput.click());
+  if (toggleUnderlayButton) toggleUnderlayButton.addEventListener("click", toggleUnderlayVisibility);
+  if (lockUnderlayButton) lockUnderlayButton.addEventListener("click", toggleUnderlayLock);
+  if (underlayOpacity) {
+    underlayOpacity.addEventListener("pointerdown", armUnderlayOpacityUndo);
+    underlayOpacity.addEventListener("keydown", armUnderlayOpacityUndo);
+    underlayOpacity.addEventListener("input", updateUnderlayOpacity);
+    underlayOpacity.addEventListener("change", commitUnderlayOpacityChange);
+  }
   document.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => {
       setActiveTool(button.dataset.tool);
     });
   });
   loadJsonInput.addEventListener("change", loadJson);
+  if (underlayInput) underlayInput.addEventListener("change", linkUnderlay);
 
   canvas.addEventListener("contextmenu", (event) => event.preventDefault());
   canvas.addEventListener("pointerdown", onPointerDown);
@@ -669,10 +712,14 @@ function draw() {
   drawBackground(rect);
   drawGrid(rect);
   drawZones();
+  syncUnderlayViewTransform();
   updateZoomStatus();
 }
 
 function drawBackground(rect) {
+  if (plan.underlay && plan.underlay.visible) {
+    return;
+  }
   ctx.fillStyle = CANVAS_BACKGROUND;
   ctx.fillRect(0, 0, rect.width, rect.height);
 }
@@ -1034,6 +1081,7 @@ function updateUi() {
   moduleSizeSelect.value = String(plan.moduleSizeMm);
   cellAreaReadout.textContent = `${getCellAreaSqm().toFixed(2)} ㎡`;
   renderDashboard();
+  renderUnderlay();
   draw();
 }
 
@@ -1427,7 +1475,8 @@ function normalizePlan(source) {
     version: source.version,
     moduleSizeMm: source.moduleSizeMm,
     categories: Array.isArray(source.categories) && source.categories.length ? source.categories : categories,
-    cells: source.cells && typeof source.cells === "object" ? source.cells : {}
+    cells: source.cells && typeof source.cells === "object" ? source.cells : {},
+    underlay: source.underlay && typeof source.underlay === "object" ? { ...source.underlay, needsRelink: true } : null
   });
 
   Object.keys(normalized.cells).forEach((key) => {
@@ -1439,6 +1488,10 @@ function normalizePlan(source) {
       delete normalized.cells[key].zoneId;
     }
   });
+  if (normalized.underlay) {
+    normalized.underlay = cloneUnderlay(normalized.underlay);
+  }
+
   normalized.categories = normalized.categories.map((category) => ({
     ...category,
     color: defaultCategoryColors.get(category.id) || category.color
@@ -1484,7 +1537,7 @@ function assignMissingZoneIds(targetPlan) {
 }
 
 function saveJson() {
-  const blob = new Blob([JSON.stringify(plan, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(serializePlanForSave(), null, 2)], { type: "application/json" });
   downloadBlob(blob, `blockplan-${dateStamp()}.json`);
   showSaveStatus("JSON saved");
 }
@@ -1498,6 +1551,7 @@ function loadJson(event) {
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     try {
+      if (typeof pushUndoState === "function") pushUndoState();
       plan = normalizePlan(JSON.parse(reader.result));
       selectedZoneSignature = null;
       transformDraft = null;
@@ -1645,6 +1699,150 @@ function fitAllZonesToView() {
   draw();
   updateZoomStatus();
   showSaveStatus("Fit all zones");
+}
+
+function serializePlanForSave() {
+  const copy = clonePlan(plan);
+  if (copy.underlay) {
+    delete copy.underlay.needsRelink;
+  }
+  return copy;
+}
+
+function linkUnderlay(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (typeof pushUndoState === "function") pushUndoState();
+
+  if (underlayObjectUrl) {
+    URL.revokeObjectURL(underlayObjectUrl);
+  }
+  underlayObjectUrl = URL.createObjectURL(file);
+  underlaySessionKey += 1;
+
+  const previous = plan.underlay ? cloneUnderlay(plan.underlay) : cloneUnderlay({});
+  plan.underlay = cloneUnderlay({
+    ...previous,
+    name: file.name,
+    type: file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
+    needsRelink: false
+  });
+
+  persistPlan();
+  updateUi();
+  showSaveStatus("Underlay linked");
+  event.target.value = "";
+}
+
+function toggleUnderlayVisibility() {
+  if (!plan.underlay) return;
+  if (typeof pushUndoState === "function") pushUndoState();
+  plan.underlay.visible = !plan.underlay.visible;
+  persistPlan();
+  updateUi();
+}
+
+function toggleUnderlayLock() {
+  if (!plan.underlay) return;
+  if (typeof pushUndoState === "function") pushUndoState();
+  plan.underlay.locked = !plan.underlay.locked;
+  persistPlan();
+  updateUi();
+}
+
+function armUnderlayOpacityUndo() {
+  if (!plan.underlay || underlayOpacityUndoArmed) return;
+  if (typeof pushUndoState === "function") pushUndoState();
+  underlayOpacityUndoArmed = true;
+}
+
+function updateUnderlayOpacity() {
+  if (!plan.underlay) return;
+  plan.underlay.opacity = Number(underlayOpacity.value) / 100;
+  persistPlan();
+  renderUnderlay();
+}
+
+function commitUnderlayOpacityChange() {
+  if (!plan.underlay) return;
+  if (!underlayOpacityUndoArmed && typeof pushUndoState === "function") {
+    pushUndoState();
+  }
+  underlayOpacityUndoArmed = false;
+  updateUnderlayOpacity();
+}
+
+function renderUnderlay() {
+  if (!underlayLayer) return;
+  underlayLayer.innerHTML = "";
+
+  const underlay = plan.underlay;
+  if (!underlay) {
+    updateUnderlayControls("No underlay linked");
+    return;
+  }
+
+  if (!underlay.visible) {
+    updateUnderlayControls(`${underlay.name || "Underlay"} hidden`);
+    return;
+  }
+
+  if (!underlayObjectUrl || underlay.needsRelink) {
+    const message = document.createElement("div");
+    message.className = "underlay-message";
+    message.textContent = `${underlay.name || "Linked file"}: Missing linked file / Relink required`;
+    underlayLayer.appendChild(message);
+    updateUnderlayControls(`${underlay.name || "Underlay"} needs relink`);
+    return;
+  }
+
+  const element = underlay.type === "pdf" ? document.createElement("object") : document.createElement("img");
+  element.src = underlayObjectUrl;
+  if (underlay.type === "pdf") {
+    element.data = underlayObjectUrl;
+    element.type = "application/pdf";
+    element.textContent = "PDF linked / preview may depend on browser";
+  } else {
+    element.alt = underlay.name || "Linked underlay";
+  }
+
+  const transform = underlay.transform || defaultUnderlay.transform;
+  element.dataset.underlayContent = "true";
+  element.style.opacity = String(underlay.opacity);
+  element.style.transform = getUnderlayCssTransform(transform);
+  underlayLayer.appendChild(element);
+  updateUnderlayControls(`${underlay.name || "Underlay"} linked (${underlay.type})`);
+}
+
+function syncUnderlayViewTransform() {
+  if (!underlayLayer || !plan.underlay || !plan.underlay.visible) return;
+  const element = underlayLayer.querySelector("[data-underlay-content]");
+  if (!element) return;
+
+  element.style.transform = getUnderlayCssTransform(plan.underlay.transform || defaultUnderlay.transform);
+}
+
+function getUnderlayCssTransform(transform) {
+  return `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom}) translate(${transform.x}px, ${transform.y}px) scale(${transform.scale}) rotate(${transform.rotation}deg)`;
+}
+
+function updateUnderlayControls(message) {
+  const underlay = plan.underlay;
+  if (underlayStatus) underlayStatus.textContent = message;
+  if (replaceUnderlayButton) replaceUnderlayButton.disabled = !underlay;
+  if (toggleUnderlayButton) {
+    toggleUnderlayButton.disabled = !underlay;
+    toggleUnderlayButton.textContent = underlay && underlay.visible ? "Hide" : "Show";
+  }
+  if (lockUnderlayButton) {
+    lockUnderlayButton.disabled = !underlay;
+    lockUnderlayButton.textContent = underlay && underlay.locked ? "Unlock" : "Lock";
+  }
+  if (underlayOpacity) {
+    underlayOpacity.disabled = !underlay;
+    underlayOpacity.value = String(Math.round((underlay ? underlay.opacity : defaultUnderlay.opacity) * 100));
+  }
+  if (underlayOpacityValue) underlayOpacityValue.textContent = `${underlayOpacity ? underlayOpacity.value : 50}%`;
 }
 
 function downloadBlob(blob, filename) {

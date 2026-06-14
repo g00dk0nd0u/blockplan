@@ -24,27 +24,27 @@
         <div class="tool-actions" aria-label="Tools">
           <button id="selectToolButton" type="button" class="tool-button" data-tool="select">
             <span class="tool-icon" aria-hidden="true">↖</span>
-            <span>Select / Move</span>
+            <span class="tool-label">Select</span>
           </button>
           <button id="copyToolButton" type="button" class="tool-button" data-tool="copy">
             <span class="tool-icon" aria-hidden="true">⧉</span>
-            <span>Copy</span>
+            <span class="tool-label">Copy</span>
           </button>
           <button id="cutToolButton" type="button" class="tool-button" data-tool="cut">
             <span class="tool-icon" aria-hidden="true">⌁</span>
-            <span>Cut</span>
+            <span class="tool-label">Cut</span>
           </button>
           <button id="eraseToolButton" type="button" class="tool-button" data-tool="erase">
             <span class="tool-icon" aria-hidden="true">⌫</span>
-            <span>Erase</span>
+            <span class="tool-label">Erase</span>
           </button>
           <button id="mergeToolButton" type="button" class="tool-button" data-tool="merge">
             <span class="tool-icon" aria-hidden="true">⊕</span>
-            <span>Merge</span>
+            <span class="tool-label">Merge</span>
           </button>
           <button id="rotateToolButton" type="button" class="tool-button" data-tool="rotate">
             <span class="tool-icon" aria-hidden="true">⟳</span>
-            <span>Rotate 90°</span>
+            <span class="tool-label">Rotate</span>
           </button>
         </div>
 
@@ -53,11 +53,14 @@
           <button id="saveJsonButton" type="button">Save JSON</button>
           <button id="loadJsonButton" type="button">Load JSON</button>
           <button id="exportPngButton" type="button">Export PNG</button>
+          <button id="linkUnderlayButton" type="button">Link Underlay</button>
           <input id="loadJsonInput" type="file" accept="application/json,.json" hidden>
+          <input id="underlayInput" type="file" accept="application/pdf,image/png,image/jpeg,image/svg+xml,image/webp,.pdf,.png,.jpg,.jpeg,.svg,.webp" hidden>
         </div>
       </header>
 
       <main class="canvas-panel" aria-label="Planning canvas">
+        <div id="underlayLayer" class="underlay-layer" aria-hidden="true"></div>
         <canvas id="planningCanvas"></canvas>
         <div class="canvas-status">
           <span id="zoomStatus">100%</span>
@@ -72,6 +75,24 @@
             <button id="addCategoryButton" type="button" class="icon-button" title="Add category">＋</button>
           </div>
           <div id="dashboard" class="dashboard"></div>
+        </section>
+
+        <section>
+          <h2>Underlay</h2>
+          <div class="underlay-controls">
+            <p id="underlayStatus" class="underlay-status">No underlay linked</p>
+            <div class="underlay-action-row">
+              <button id="replaceUnderlayButton" type="button" class="secondary-button" disabled>Replace</button>
+              <button id="toggleUnderlayButton" type="button" class="secondary-button" disabled>Hide</button>
+              <button id="lockUnderlayButton" type="button" class="secondary-button" disabled>Unlock</button>
+            </div>
+            <label class="underlay-field">
+              <span>Opacity</span>
+              <input id="underlayOpacity" type="range" min="0" max="100" value="50" disabled>
+              <output id="underlayOpacityValue">50%</output>
+            </label>
+            <p class="help-copy">Linked files are references only. JSON stores metadata, not file contents.</p>
+          </div>
         </section>
 
         <section>

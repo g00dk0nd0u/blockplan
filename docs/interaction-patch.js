@@ -258,7 +258,7 @@ function installUndoCaptureHandlers() {
     clearButton.addEventListener(
       "click",
       () => {
-        if (Object.keys(plan.cells).length) pushUndoState();
+        if (Object.keys(plan.cells).length || plan.underlay) pushUndoState();
       },
       true
     );
@@ -267,7 +267,12 @@ function installUndoCaptureHandlers() {
 
 function pushUndoState() {
   try {
-    patchUndoStack.push(JSON.stringify(plan));
+    patchUndoStack.push(JSON.stringify({
+      plan,
+      activeCategoryId,
+      selectedZoneSignature,
+      underlaySessionKey: typeof underlaySessionKey === "number" ? underlaySessionKey : 0
+    }));
 
     if (patchUndoStack.length > PATCH_UNDO_LIMIT) {
       patchUndoStack.shift();
@@ -285,7 +290,13 @@ function undoLastAction() {
 
   try {
     const previous = JSON.parse(patchUndoStack.pop());
-    plan = clonePlan(previous);
+    const snapshotPlan = previous.plan || previous;
+    plan = clonePlan(snapshotPlan);
+    if (plan.underlay && previous.underlaySessionKey !== underlaySessionKey) {
+      plan.underlay.needsRelink = true;
+    }
+    activeCategoryId = previous.activeCategoryId || activeCategoryId;
+    selectedZoneSignature = previous.selectedZoneSignature || null;
 
     patchPaintDraft = null;
     patchSplitDraft = null;
@@ -295,7 +306,6 @@ function undoLastAction() {
     transformDraft = null;
     cutDraft = null;
     paintStrokeZoneId = null;
-    selectedZoneSignature = null;
     patchSelectedZoneIds.clear();
 
     persistPlan();
