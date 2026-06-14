@@ -568,3 +568,114 @@ h2 {
     min-height: 520px;
   }
 }
+
+.tool-actions .tool-button {
+  align-items: center;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  justify-content: center;
+  line-height: 1.1;
+  min-height: 52px;
+  min-width: 58px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.tool-icon {
+  display: block;
+  font-size: 18px;
+  line-height: 1;
+  width: auto;
+}
+
+.tool-label {
+  display: block;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.underlay-layer {
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  position: absolute;
+  z-index: 0;
+}
+
+.underlay-layer > img,
+.underlay-layer > object,
+.underlay-layer > iframe {
+  border: 0;
+  height: 100%;
+  left: 0;
+  max-width: none;
+  position: absolute;
+  top: 0;
+  transform-origin: top left;
+  width: 100%;
+}
+
+.underlay-message {
+  background: rgba(247, 246, 244, 0.88);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  font-size: 12px;
+  left: 16px;
+  max-width: 320px;
+  padding: 10px 12px;
+  position: absolute;
+  top: 16px;
+}
+
+#planningCanvas {
+  position: relative;
+  z-index: 1;
+}
+
+.canvas-status {
+  z-index: 2;
+}
+
+.underlay-controls {
+  background: rgba(247, 246, 244, 0.35);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+
+.underlay-status {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+  margin: 0 0 9px;
+}
+
+.underlay-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.underlay-field {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: auto 1fr auto;
+  margin-bottom: 8px;
+}
+
+.underlay-field span,
+.underlay-field output,
+.underlay-controls .help-copy {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.underlay-field output {
+  font-variant-numeric: tabular-nums;
+  min-width: 38px;
+  text-align: right;
+}
