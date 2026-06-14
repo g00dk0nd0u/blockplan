@@ -82,13 +82,13 @@
           <div class="underlay-controls">
             <p id="underlayStatus" class="underlay-status">No underlay linked</p>
             <div class="underlay-action-row">
-              <button id="replaceUnderlayButton" type="button" class="secondary-button">Replace</button>
-              <button id="toggleUnderlayButton" type="button" class="secondary-button">Hide</button>
-              <button id="lockUnderlayButton" type="button" class="secondary-button">Unlock</button>
+              <button id="replaceUnderlayButton" type="button" class="secondary-button" disabled>Replace</button>
+              <button id="toggleUnderlayButton" type="button" class="secondary-button" disabled>Hide</button>
+              <button id="lockUnderlayButton" type="button" class="secondary-button" disabled>Unlock</button>
             </div>
             <label class="underlay-field">
               <span>Opacity</span>
-              <input id="underlayOpacity" type="range" min="0" max="100" value="50">
+              <input id="underlayOpacity" type="range" min="0" max="100" value="50" disabled>
               <output id="underlayOpacityValue">50%</output>
             </label>
             <p class="help-copy">Linked files are references only. JSON stores metadata, not file contents.</p>

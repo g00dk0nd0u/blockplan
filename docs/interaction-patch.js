@@ -270,7 +270,8 @@ function pushUndoState() {
     patchUndoStack.push(JSON.stringify({
       plan,
       activeCategoryId,
-      selectedZoneSignature
+      selectedZoneSignature,
+      underlaySessionKey: typeof underlaySessionKey === "number" ? underlaySessionKey : 0
     }));
 
     if (patchUndoStack.length > PATCH_UNDO_LIMIT) {
@@ -291,6 +292,9 @@ function undoLastAction() {
     const previous = JSON.parse(patchUndoStack.pop());
     const snapshotPlan = previous.plan || previous;
     plan = clonePlan(snapshotPlan);
+    if (plan.underlay && previous.underlaySessionKey !== underlaySessionKey) {
+      plan.underlay.needsRelink = true;
+    }
     activeCategoryId = previous.activeCategoryId || activeCategoryId;
     selectedZoneSignature = previous.selectedZoneSignature || null;
 

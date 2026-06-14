@@ -50,6 +50,8 @@ let paintStrokeZoneId = null;
 let cutDraft = null;
 let lastMiddleClickTime = 0;
 let underlayObjectUrl = null;
+let underlaySessionKey = 0;
+let underlayOpacityUndoArmed = false;
 
 const view = {
   zoom: 1,
@@ -131,7 +133,12 @@ function bindEvents() {
   if (replaceUnderlayButton) replaceUnderlayButton.addEventListener("click", () => underlayInput.click());
   if (toggleUnderlayButton) toggleUnderlayButton.addEventListener("click", toggleUnderlayVisibility);
   if (lockUnderlayButton) lockUnderlayButton.addEventListener("click", toggleUnderlayLock);
-  if (underlayOpacity) underlayOpacity.addEventListener("input", updateUnderlayOpacity);
+  if (underlayOpacity) {
+    underlayOpacity.addEventListener("pointerdown", armUnderlayOpacityUndo);
+    underlayOpacity.addEventListener("keydown", armUnderlayOpacityUndo);
+    underlayOpacity.addEventListener("input", updateUnderlayOpacity);
+    underlayOpacity.addEventListener("change", commitUnderlayOpacityChange);
+  }
   document.querySelectorAll("[data-tool]").forEach((button) => {
     button.addEventListener("click", () => {
       setActiveTool(button.dataset.tool);
@@ -705,6 +712,7 @@ function draw() {
   drawBackground(rect);
   drawGrid(rect);
   drawZones();
+  syncUnderlayViewTransform();
   updateZoomStatus();
 }
 
@@ -1710,6 +1718,7 @@ function linkUnderlay(event) {
     URL.revokeObjectURL(underlayObjectUrl);
   }
   underlayObjectUrl = URL.createObjectURL(file);
+  underlaySessionKey += 1;
 
   const previous = plan.underlay ? cloneUnderlay(plan.underlay) : cloneUnderlay({});
   plan.underlay = cloneUnderlay({
@@ -1741,12 +1750,26 @@ function toggleUnderlayLock() {
   updateUi();
 }
 
+function armUnderlayOpacityUndo() {
+  if (!plan.underlay || underlayOpacityUndoArmed) return;
+  if (typeof pushUndoState === "function") pushUndoState();
+  underlayOpacityUndoArmed = true;
+}
+
 function updateUnderlayOpacity() {
   if (!plan.underlay) return;
-  if (typeof pushUndoState === "function") pushUndoState();
   plan.underlay.opacity = Number(underlayOpacity.value) / 100;
   persistPlan();
   renderUnderlay();
+}
+
+function commitUnderlayOpacityChange() {
+  if (!plan.underlay) return;
+  if (!underlayOpacityUndoArmed && typeof pushUndoState === "function") {
+    pushUndoState();
+  }
+  underlayOpacityUndoArmed = false;
+  updateUnderlayOpacity();
 }
 
 function renderUnderlay() {
@@ -1784,17 +1807,37 @@ function renderUnderlay() {
   }
 
   const transform = underlay.transform || defaultUnderlay.transform;
+  element.dataset.underlayContent = "true";
   element.style.opacity = String(underlay.opacity);
-  element.style.transform = `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale}) rotate(${transform.rotation}deg)`;
+  element.style.transform = getUnderlayCssTransform(transform);
   underlayLayer.appendChild(element);
   updateUnderlayControls(`${underlay.name || "Underlay"} linked (${underlay.type})`);
+}
+
+function syncUnderlayViewTransform() {
+  if (!underlayLayer || !plan.underlay || !plan.underlay.visible) return;
+  const element = underlayLayer.querySelector("[data-underlay-content]");
+  if (!element) return;
+
+  element.style.transform = getUnderlayCssTransform(plan.underlay.transform || defaultUnderlay.transform);
+}
+
+function getUnderlayCssTransform(transform) {
+  return `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom}) translate(${transform.x}px, ${transform.y}px) scale(${transform.scale}) rotate(${transform.rotation}deg)`;
 }
 
 function updateUnderlayControls(message) {
   const underlay = plan.underlay;
   if (underlayStatus) underlayStatus.textContent = message;
-  if (toggleUnderlayButton) toggleUnderlayButton.textContent = underlay && underlay.visible ? "Hide" : "Show";
-  if (lockUnderlayButton) lockUnderlayButton.textContent = underlay && underlay.locked ? "Unlock" : "Lock";
+  if (replaceUnderlayButton) replaceUnderlayButton.disabled = !underlay;
+  if (toggleUnderlayButton) {
+    toggleUnderlayButton.disabled = !underlay;
+    toggleUnderlayButton.textContent = underlay && underlay.visible ? "Hide" : "Show";
+  }
+  if (lockUnderlayButton) {
+    lockUnderlayButton.disabled = !underlay;
+    lockUnderlayButton.textContent = underlay && underlay.locked ? "Unlock" : "Lock";
+  }
   if (underlayOpacity) {
     underlayOpacity.disabled = !underlay;
     underlayOpacity.value = String(Math.round((underlay ? underlay.opacity : defaultUnderlay.opacity) * 100));
