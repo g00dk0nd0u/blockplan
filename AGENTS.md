@@ -1,32 +1,63 @@
-# AGENTS.md
+# BlockPlan Agent Instructions
 
-## Project Purpose
+## Project Overview
 
-BlockPlan is a plain HTML, CSS, and JavaScript pre-BIM zoning sketch tool. It should stay lightweight, fast to open, and easy to publish on GitHub Pages.
+- BlockPlan is a static browser-based architectural block planning tool.
+- `docs/index.html` must continue to work when opened directly in a browser.
+- Do not introduce a bundler, framework, or build step for the app runtime.
+- `package.json` and Playwright are allowed only for development/test verification.
 
-## Constraints
+## Source of Truth
 
-- Do not add React, Vite, npm, bundlers, transpilers, or build steps.
-- The app must run by opening `docs/index.html` locally.
-- Keep the code readable and modular.
-- Prefer simple browser APIs over dependencies.
-- Use HTML Canvas for the planning surface.
+- `plan.cells` is the source of truth for planning geometry.
+- Categories and module size are part of the saved plan state.
+- Dashboard values, zones, canvas rendering, PNG exports, screenshots, and Playwright artifacts are derived outputs.
+- Do not treat screenshots or PNG files as editable source data.
 
-## Data Model
+## Hidden Browser API
 
-Keep plan data centered on:
+- `window.BlockPlanAPI` is a hidden debug/test bridge for Codex and Playwright.
+- The API must not add visible UI or change normal user workflows.
+- API operations must update the same plan state used by the UI.
+- After API mutations, keep canvas, dashboard, localStorage, and save status in sync.
+- API methods must not trigger `confirm()`, `prompt()`, file input clicks, or downloads.
 
-- `moduleSizeMm`
-- `categories`
-- `cells` keyed by `"x,y"`
-- each cell storing `categoryId`
-- dashboard values calculated from cells
+## API Response Contract
 
-Prepare for future boundary, subdivision, isolation, and export features without implementing them prematurely.
+- New or changed API methods should use a stable response contract.
+- Mutation methods should return `{ ok: true, ... }` on success and `{ ok: false, error: "..." }` on failure.
+- Read methods may return direct data only if the Playwright tests clearly document that contract.
+- Do not mix response styles inside the same method family without updating tests.
+- Any API contract change must update `tests/blockplan-api.spec.js`.
 
-## UX Direction
+## Playwright Verification
 
-- This is not a CAD replacement.
-- Prioritize speed, clear feedback, and low-friction sketching.
-- Keep the visible UI focused on zoning, module size, save/load, export, and dashboard metrics.
-- Avoid heavy animations and decorative complexity.
+- Playwright is for GUI smoke testing, API verification, screenshots, and artifact inspection.
+- Playwright screenshots are review artifacts, not source of truth.
+- Design/planning quality judgment should use API data, dashboard metrics, screenshots, and human/Codex review together.
+- Tests should use stable `data-testid` selectors.
+
+## Generated Artifacts
+
+- Do not commit generated screenshots, PNG files, ZIP files, `test-results/`, browser artifacts, or `node_modules/`.
+- Keep generated visual artifacts local, in CI artifacts, or in Codex task artifacts.
+
+## Verification
+
+For normal changes, run when applicable:
+
+```bash
+node --check docs/app.js
+node --check docs/interaction-patch.js
+node --check docs/blockplan-api.js
+node --check tests/blockplan-api.spec.js
+git diff --check
+```
+
+If Playwright dependencies are available:
+
+```bash
+npm test
+```
+
+If Playwright cannot run because dependencies cannot be installed, report the reason clearly.

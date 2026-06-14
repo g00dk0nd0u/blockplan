@@ -22,46 +22,46 @@
         </div>
 
         <div class="tool-actions" aria-label="Tools">
-          <button id="selectToolButton" type="button" class="tool-button" data-tool="select">
+          <button id="selectToolButton" data-testid="tool-select" type="button" class="tool-button" data-tool="select">
             <span class="tool-icon" aria-hidden="true">↖</span>
             <span class="tool-label">Select</span>
           </button>
-          <button id="copyToolButton" type="button" class="tool-button" data-tool="copy">
+          <button id="copyToolButton" data-testid="tool-copy" type="button" class="tool-button" data-tool="copy">
             <span class="tool-icon" aria-hidden="true">⧉</span>
             <span class="tool-label">Copy</span>
           </button>
-          <button id="cutToolButton" type="button" class="tool-button" data-tool="cut">
+          <button id="cutToolButton" data-testid="tool-cut" type="button" class="tool-button" data-tool="cut">
             <span class="tool-icon" aria-hidden="true">⌁</span>
             <span class="tool-label">Cut</span>
           </button>
-          <button id="eraseToolButton" type="button" class="tool-button" data-tool="erase">
+          <button id="eraseToolButton" data-testid="tool-erase" type="button" class="tool-button" data-tool="erase">
             <span class="tool-icon" aria-hidden="true">⌫</span>
             <span class="tool-label">Erase</span>
           </button>
-          <button id="mergeToolButton" type="button" class="tool-button" data-tool="merge">
+          <button id="mergeToolButton" data-testid="tool-merge" type="button" class="tool-button" data-tool="merge">
             <span class="tool-icon" aria-hidden="true">⊕</span>
             <span class="tool-label">Merge</span>
           </button>
-          <button id="rotateToolButton" type="button" class="tool-button" data-tool="rotate">
+          <button id="rotateToolButton" data-testid="tool-rotate" type="button" class="tool-button" data-tool="rotate">
             <span class="tool-icon" aria-hidden="true">⟳</span>
             <span class="tool-label">Rotate</span>
           </button>
         </div>
 
         <div class="file-actions" aria-label="File actions">
-          <button id="clearButton" type="button">Clear Plan</button>
-          <button id="saveJsonButton" type="button">Save JSON</button>
-          <button id="loadJsonButton" type="button">Load JSON</button>
-          <button id="exportPngButton" type="button">Export PNG</button>
-          <button id="linkUnderlayButton" type="button">Link Underlay</button>
-          <input id="loadJsonInput" type="file" accept="application/json,.json" hidden>
-          <input id="underlayInput" type="file" accept="application/pdf,image/png,image/jpeg,image/svg+xml,image/webp,.pdf,.png,.jpg,.jpeg,.svg,.webp" hidden>
+          <button id="clearButton" data-testid="clear-plan" type="button">Clear Plan</button>
+          <button id="saveJsonButton" data-testid="save-json" type="button">Save JSON</button>
+          <button id="loadJsonButton" data-testid="load-json" type="button">Load JSON</button>
+          <button id="exportPngButton" data-testid="export-png" type="button">Export PNG</button>
+          <button id="linkUnderlayButton" data-testid="link-underlay" type="button">Link Underlay</button>
+          <input id="loadJsonInput" data-testid="load-json-input" type="file" accept="application/json,.json" hidden>
+          <input id="underlayInput" data-testid="underlay-input" type="file" accept="application/pdf,image/png,image/jpeg,image/svg+xml,image/webp,.pdf,.png,.jpg,.jpeg,.svg,.webp" hidden>
         </div>
       </header>
 
       <main class="canvas-panel" aria-label="Planning canvas">
         <div id="underlayLayer" class="underlay-layer" aria-hidden="true"></div>
-        <canvas id="planningCanvas"></canvas>
+        <canvas id="planningCanvas" data-testid="planning-canvas"></canvas>
         <div class="canvas-status">
           <span id="zoomStatus">100%</span>
           <span id="cellStatus">Cell 0, 0</span>
@@ -72,9 +72,9 @@
         <section>
           <div class="section-heading-row">
             <h2>Dashboard</h2>
-            <button id="addCategoryButton" type="button" class="icon-button" title="Add category">＋</button>
+            <button id="addCategoryButton" data-testid="add-category" type="button" class="icon-button" title="Add category">＋</button>
           </div>
-          <div id="dashboard" class="dashboard"></div>
+          <div id="dashboard" data-testid="dashboard" class="dashboard"></div>
         </section>
 
         <section>
@@ -109,7 +109,7 @@
             <div>
               <dt>Module size</dt>
               <dd>
-                <select id="moduleSize" class="settings-select" aria-label="Module size">
+                <select id="moduleSize" data-testid="module-size" class="settings-select" aria-label="Module size">
                   <option value="300">300 mm</option>
                   <option value="600">600 mm</option>
                   <option value="1200">1200 mm</option>
@@ -124,11 +124,11 @@
             </div>
             <div>
               <dt>Cell area</dt>
-              <dd id="cellAreaReadout">12.96 ㎡</dd>
+              <dd id="cellAreaReadout" data-testid="cell-area-readout">12.96 ㎡</dd>
             </div>
             <div>
               <dt>Saved state</dt>
-              <dd id="saveStatus">Ready</dd>
+              <dd id="saveStatus" data-testid="save-status">Ready</dd>
             </div>
           </dl>
         </section>
@@ -137,5 +137,6 @@
 
     <script src="app.js"></script>
     <script src="interaction-patch.js"></script>
+    <script src="blockplan-api.js"></script>
   </body>
 </html>

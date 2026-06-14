@@ -49,6 +49,13 @@ Shortcuts:
 - PNG export
 - GitHub Pages ready from `main` branch `/docs`
 
+
+## Codex / Playwright Verification
+
+BlockPlan exposes a hidden `window.BlockPlanAPI` bridge for Codex and Playwright verification. It is not a normal user-facing feature and should not change the visible workflow.
+
+`plan.cells` is the source of truth for planning geometry; dashboard values, zones, screenshots, and PNG exports are derived from that state. Playwright screenshots and PNG files are review artifacts, not the saved plan format. See `AGENTS.md` for repository-level agent guidance.
+
 ## Browser Support
 
 BlockPlan is designed for current desktop browsers that support HTML Canvas, `localStorage`, and standard file download APIs. Recent versions of Chrome, Edge, Safari, and Firefox are recommended. The app runs entirely in the browser and does not send plan data to a server.
