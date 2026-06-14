@@ -13,3 +13,6 @@ downloads/
 exports/
 .playwright-cli/
 output/
+
+test-results/
+node_modules/
