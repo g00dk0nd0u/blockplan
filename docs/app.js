@@ -1783,6 +1783,9 @@ function toggleUnderlayVisibility() {
   if (!plan.underlay) return;
   if (typeof pushUndoState === "function") pushUndoState();
   plan.underlay.visible = !plan.underlay.visible;
+  if (!plan.underlay.visible) {
+    cancelUnderlayEditMode(false);
+  }
   persistPlan();
   updateUi();
 }
@@ -1791,6 +1794,9 @@ function toggleUnderlayLock() {
   if (!plan.underlay) return;
   if (typeof pushUndoState === "function") pushUndoState();
   plan.underlay.locked = !plan.underlay.locked;
+  if (plan.underlay.locked) {
+    cancelUnderlayEditMode(false);
+  }
   persistPlan();
   updateUi();
 }
@@ -1804,6 +1810,9 @@ function armUnderlayOpacityUndo() {
 function updateUnderlayOpacity() {
   if (!plan.underlay) return;
   plan.underlay.opacity = Number(underlayOpacity.value) / 100;
+  if (underlayOpacityValue) {
+    underlayOpacityValue.textContent = `${underlayOpacity.value}%`;
+  }
   persistPlan();
   applyUnderlayVisualsToElement();
 }
