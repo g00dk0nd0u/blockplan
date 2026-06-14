@@ -52,6 +52,9 @@ let lastMiddleClickTime = 0;
 let underlayObjectUrl = null;
 let underlaySessionKey = 0;
 let underlayOpacityUndoArmed = false;
+let underlayEditMode = null;
+let underlayMoveDraft = null;
+let underlayScalePoints = [];
 
 const view = {
   zoom: 1,
@@ -78,6 +81,12 @@ const lockUnderlayButton = document.getElementById("lockUnderlayButton");
 const underlayOpacity = document.getElementById("underlayOpacity");
 const underlayOpacityValue = document.getElementById("underlayOpacityValue");
 const underlayStatus = document.getElementById("underlayStatus");
+const moveUnderlayButton = document.getElementById("moveUnderlayButton");
+const scaleDownUnderlayButton = document.getElementById("scaleDownUnderlayButton");
+const scaleUpUnderlayButton = document.getElementById("scaleUpUnderlayButton");
+const rotateUnderlayButton = document.getElementById("rotateUnderlayButton");
+const resetUnderlayButton = document.getElementById("resetUnderlayButton");
+const scaleByPointsUnderlayButton = document.getElementById("scaleByPointsUnderlayButton");
 
 function clonePlan(source) {
   return {
@@ -133,6 +142,12 @@ function bindEvents() {
   if (replaceUnderlayButton) replaceUnderlayButton.addEventListener("click", () => underlayInput.click());
   if (toggleUnderlayButton) toggleUnderlayButton.addEventListener("click", toggleUnderlayVisibility);
   if (lockUnderlayButton) lockUnderlayButton.addEventListener("click", toggleUnderlayLock);
+  if (moveUnderlayButton) moveUnderlayButton.addEventListener("click", startUnderlayMoveMode);
+  if (scaleDownUnderlayButton) scaleDownUnderlayButton.addEventListener("click", () => scaleUnderlayByButton(1 / 1.05));
+  if (scaleUpUnderlayButton) scaleUpUnderlayButton.addEventListener("click", () => scaleUnderlayByButton(1.05));
+  if (rotateUnderlayButton) rotateUnderlayButton.addEventListener("click", rotateUnderlay90);
+  if (resetUnderlayButton) resetUnderlayButton.addEventListener("click", resetUnderlayTransform);
+  if (scaleByPointsUnderlayButton) scaleByPointsUnderlayButton.addEventListener("click", startUnderlayScaleByPointsMode);
   if (underlayOpacity) {
     underlayOpacity.addEventListener("pointerdown", armUnderlayOpacityUndo);
     underlayOpacity.addEventListener("keydown", armUnderlayOpacityUndo);
@@ -322,12 +337,26 @@ function setActiveTool(tool) {
     return;
   }
   activeTool = tool;
+  cancelUnderlayEditMode(false);
   transformDraft = null;
   renderToolButtons();
   updateCanvasCursor();
 }
 
 function updateCanvasCursor() {
+  if (underlayMoveDraft) {
+    canvas.style.cursor = "grabbing";
+    return;
+  }
+  if (underlayEditMode === "move") {
+    canvas.style.cursor = "grab";
+    return;
+  }
+  if (underlayEditMode === "scaleByPoints") {
+    canvas.style.cursor = "crosshair";
+    return;
+  }
+
   const cursorByTool = {
     select: "grab",
     copy: "copy",
@@ -342,6 +371,9 @@ function updateCanvasCursor() {
 }
 
 function cancelCurrentOperation() {
+  if (underlayEditMode) {
+    cancelUnderlayEditMode(true);
+  }
   transformDraft = null;
   cutDraft = null;
   paintStrokeZoneId = null;
@@ -367,6 +399,10 @@ function onPointerDown(event) {
   }
 
   if (event.button !== 0) {
+    return;
+  }
+
+  if (underlayEditMode && handleUnderlayPointerDown(event)) {
     return;
   }
 
@@ -396,6 +432,11 @@ function onPointerMove(event) {
     return;
   }
 
+  if (underlayMoveDraft) {
+    updateUnderlayMove(event);
+    return;
+  }
+
   if (isPainting) {
     paintAtEvent(event);
   }
@@ -412,6 +453,10 @@ function onPointerMove(event) {
 function endPointerAction(event) {
   if (canvas.hasPointerCapture(event.pointerId)) {
     canvas.releasePointerCapture(event.pointerId);
+  }
+
+  if (underlayMoveDraft) {
+    finishUnderlayMove();
   }
 
   if (isPainting) {
@@ -1738,6 +1783,9 @@ function toggleUnderlayVisibility() {
   if (!plan.underlay) return;
   if (typeof pushUndoState === "function") pushUndoState();
   plan.underlay.visible = !plan.underlay.visible;
+  if (!plan.underlay.visible) {
+    cancelUnderlayEditMode(false);
+  }
   persistPlan();
   updateUi();
 }
@@ -1746,6 +1794,9 @@ function toggleUnderlayLock() {
   if (!plan.underlay) return;
   if (typeof pushUndoState === "function") pushUndoState();
   plan.underlay.locked = !plan.underlay.locked;
+  if (plan.underlay.locked) {
+    cancelUnderlayEditMode(false);
+  }
   persistPlan();
   updateUi();
 }
@@ -1759,8 +1810,11 @@ function armUnderlayOpacityUndo() {
 function updateUnderlayOpacity() {
   if (!plan.underlay) return;
   plan.underlay.opacity = Number(underlayOpacity.value) / 100;
+  if (underlayOpacityValue) {
+    underlayOpacityValue.textContent = `${underlayOpacity.value}%`;
+  }
   persistPlan();
-  renderUnderlay();
+  applyUnderlayVisualsToElement();
 }
 
 function commitUnderlayOpacityChange() {
@@ -1815,15 +1869,199 @@ function renderUnderlay() {
 }
 
 function syncUnderlayViewTransform() {
-  if (!underlayLayer || !plan.underlay || !plan.underlay.visible) return;
-  const element = underlayLayer.querySelector("[data-underlay-content]");
-  if (!element) return;
+  applyUnderlayTransformToElement();
+}
 
+function applyUnderlayTransformToElement() {
+  const element = underlayLayer ? underlayLayer.querySelector("[data-underlay-content]") : null;
+  if (!element || !plan.underlay) return;
   element.style.transform = getUnderlayCssTransform(plan.underlay.transform || defaultUnderlay.transform);
+}
+
+function applyUnderlayVisualsToElement() {
+  const element = underlayLayer ? underlayLayer.querySelector("[data-underlay-content]") : null;
+  if (!element || !plan.underlay) return;
+  element.style.opacity = String(plan.underlay.opacity);
+  applyUnderlayTransformToElement();
 }
 
 function getUnderlayCssTransform(transform) {
   return `translate(${view.panX}px, ${view.panY}px) scale(${view.zoom}) translate(${transform.x}px, ${transform.y}px) scale(${transform.scale}) rotate(${transform.rotation}deg)`;
+}
+
+
+function canEditUnderlay() {
+  return Boolean(plan.underlay && plan.underlay.visible && !plan.underlay.locked && !plan.underlay.needsRelink);
+}
+
+function getCanvasCenterWorldPoint() {
+  const rect = canvas.getBoundingClientRect();
+  return screenToWorld(rect.width / 2, rect.height / 2);
+}
+
+function eventToWorldPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return screenToWorld(event.clientX - rect.left, event.clientY - rect.top);
+}
+
+function applyUnderlayScaleAroundWorldPoint(factor, anchorWorld) {
+  if (!plan.underlay) return;
+  const t = plan.underlay.transform;
+  const nextScale = clamp(t.scale * factor, 0.05, 20);
+  const actualFactor = nextScale / t.scale;
+  t.x = anchorWorld.x - actualFactor * (anchorWorld.x - t.x);
+  t.y = anchorWorld.y - actualFactor * (anchorWorld.y - t.y);
+  t.scale = nextScale;
+}
+
+function startUnderlayMoveMode() {
+  if (!canEditUnderlay()) {
+    showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
+    return;
+  }
+  underlayEditMode = "move";
+  underlayScalePoints = [];
+  showSaveStatus("Underlay move mode: drag on canvas");
+  updateCanvasCursor();
+}
+
+function startUnderlayScaleByPointsMode() {
+  if (!canEditUnderlay()) {
+    showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
+    return;
+  }
+  underlayEditMode = "scaleByPoints";
+  underlayScalePoints = [];
+  showSaveStatus("Scale by 2 pts: pick first point");
+  updateCanvasCursor();
+}
+
+function handleUnderlayPointerDown(event) {
+  if (!canEditUnderlay()) {
+    showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
+    cancelUnderlayEditMode(false);
+    return true;
+  }
+
+  if (underlayEditMode === "move") {
+    if (typeof pushUndoState === "function") pushUndoState();
+    underlayMoveDraft = { start: { x: event.clientX, y: event.clientY } };
+    showSaveStatus("Underlay move mode: drag on canvas");
+    updateCanvasCursor();
+    return true;
+  }
+
+  if (underlayEditMode === "scaleByPoints") {
+    underlayScalePoints.push(eventToWorldPoint(event));
+    if (underlayScalePoints.length === 1) {
+      showSaveStatus("Scale by 2 pts: pick second point");
+    } else {
+      finishUnderlayScaleByPoints();
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function updateUnderlayMove(event) {
+  if (!plan.underlay || !underlayMoveDraft) return;
+  const dx = (event.clientX - underlayMoveDraft.start.x) / view.zoom;
+  const dy = (event.clientY - underlayMoveDraft.start.y) / view.zoom;
+  plan.underlay.transform.x += dx;
+  plan.underlay.transform.y += dy;
+  underlayMoveDraft.start = { x: event.clientX, y: event.clientY };
+  applyUnderlayTransformToElement();
+}
+
+function finishUnderlayMove() {
+  underlayMoveDraft = null;
+  persistPlan();
+  showSaveStatus("Underlay moved");
+  updateCanvasCursor();
+}
+
+function scaleUnderlayByButton(factor) {
+  if (!canEditUnderlay()) {
+    showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
+    return;
+  }
+  if (typeof pushUndoState === "function") pushUndoState();
+  applyUnderlayScaleAroundWorldPoint(factor, getCanvasCenterWorldPoint());
+  persistPlan();
+  applyUnderlayTransformToElement();
+  draw();
+}
+
+function rotateUnderlay90() {
+  if (!canEditUnderlay()) {
+    showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
+    return;
+  }
+  if (typeof pushUndoState === "function") pushUndoState();
+  plan.underlay.transform.rotation = (plan.underlay.transform.rotation + 90) % 360;
+  persistPlan();
+  applyUnderlayTransformToElement();
+  draw();
+}
+
+function resetUnderlayTransform() {
+  if (!canEditUnderlay()) {
+    showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
+    return;
+  }
+  if (typeof pushUndoState === "function") pushUndoState();
+  plan.underlay.transform = { ...defaultUnderlay.transform };
+  persistPlan();
+  applyUnderlayTransformToElement();
+  draw();
+}
+
+function finishUnderlayScaleByPoints() {
+  const [p1World, p2World] = underlayScalePoints;
+  underlayScalePoints = [];
+  showSaveStatus("Enter known distance in meters");
+  const pickedDistanceWorldPx = distance(p1World, p2World);
+  if (pickedDistanceWorldPx < 2) {
+    underlayEditMode = null;
+    updateCanvasCursor();
+    showSaveStatus("Scale by 2 pts canceled: points too close");
+    return;
+  }
+  const raw = prompt("Known distance in meters");
+  if (raw === null || raw.trim() === "") {
+    underlayEditMode = null;
+    updateCanvasCursor();
+    showSaveStatus("Scale by 2 pts canceled");
+    return;
+  }
+  const knownDistanceM = Number(raw);
+  if (!Number.isFinite(knownDistanceM) || knownDistanceM <= 0) {
+    underlayEditMode = null;
+    updateCanvasCursor();
+    showSaveStatus("Scale by 2 pts canceled: invalid distance");
+    return;
+  }
+  const metersPerCell = plan.moduleSizeMm / 1000;
+  const knownDistanceCells = knownDistanceM / metersPerCell;
+  const knownDistanceWorldPx = knownDistanceCells * CELL_PX;
+  const factor = knownDistanceWorldPx / pickedDistanceWorldPx;
+  if (typeof pushUndoState === "function") pushUndoState();
+  applyUnderlayScaleAroundWorldPoint(factor, p1World);
+  persistPlan();
+  applyUnderlayTransformToElement();
+  draw();
+  underlayEditMode = null;
+  updateCanvasCursor();
+  showSaveStatus("Underlay scaled by 2 pts");
+}
+
+function cancelUnderlayEditMode(showStatus) {
+  underlayEditMode = null;
+  underlayMoveDraft = null;
+  underlayScalePoints = [];
+  if (showStatus) showSaveStatus("Underlay edit canceled");
+  updateCanvasCursor();
 }
 
 function updateUnderlayControls(message) {
@@ -1843,7 +2081,20 @@ function updateUnderlayControls(message) {
     underlayOpacity.value = String(Math.round((underlay ? underlay.opacity : defaultUnderlay.opacity) * 100));
   }
   if (underlayOpacityValue) underlayOpacityValue.textContent = `${underlayOpacity ? underlayOpacity.value : 50}%`;
+
+  const canEdit = canEditUnderlay();
+  [
+    moveUnderlayButton,
+    scaleDownUnderlayButton,
+    scaleUpUnderlayButton,
+    rotateUnderlayButton,
+    resetUnderlayButton,
+    scaleByPointsUnderlayButton
+  ].forEach((button) => {
+    if (button) button.disabled = !canEdit;
+  });
 }
+
 
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
