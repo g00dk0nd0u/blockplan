@@ -219,6 +219,13 @@ function installPatchKeyboardShortcuts() {
   );
 }
 
+function isUnderlayInteractionActive() {
+  return Boolean(
+    typeof underlayEditMode !== "undefined" &&
+      (underlayEditMode || (typeof underlayMoveDraft !== "undefined" && underlayMoveDraft))
+  );
+}
+
 function installUndoCaptureHandlers() {
   window.addEventListener(
     "keydown",
@@ -243,6 +250,7 @@ function installUndoCaptureHandlers() {
   canvas.addEventListener(
     "pointerdown",
     (event) => {
+      if (isUnderlayInteractionActive()) return;
       if (event.button !== 0 || isSpaceDown) return;
       if (activeTool !== "select" && activeTool !== "copy") return;
 
@@ -377,6 +385,7 @@ function distanceToNearestEmptyCell(x, y, cellSet) {
 }
 
 function onPatchPointerDown(event) {
+  if (isUnderlayInteractionActive()) return;
   if (event.button !== 0 || isSpaceDown) return;
 
   if ((activeTool === "select" || activeTool === "copy") && event.shiftKey) {
@@ -505,6 +514,7 @@ function onPatchPointerDown(event) {
 }
 
 function onPatchPointerMove(event) {
+  if (isUnderlayInteractionActive()) return;
   if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft && !patchRotateDraft) return;
 
   stopOriginalPointerAction(event);
@@ -543,6 +553,7 @@ function onPatchPointerMove(event) {
 }
 
 function onPatchPointerUp(event) {
+  if (isUnderlayInteractionActive()) return;
   if (!patchPaintDraft && !patchSplitDraft && !patchEraseDraft && !patchMergeDraft && !patchRotateDraft) return;
 
   stopOriginalPointerAction(event);
