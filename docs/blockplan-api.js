@@ -194,7 +194,14 @@
         if (!zone) throw new Error(`Unknown zoneId: ${zoneId}`);
         const destinationKeys = offsetCellKeys(zone.cellKeys, dx, dy);
         if (!canPlaceCellKeys(destinationKeys, new Set())) throw new Error("Copy would overlap existing cells");
-        const copyId = newZoneId ? String(newZoneId) : createZoneId();
+        let copyId = createZoneId();
+        if (newZoneId !== undefined) {
+          copyId = String(newZoneId).trim();
+          if (!copyId) throw new Error("newZoneId must not be empty");
+          if (calculateZones().some((item) => item.id === copyId)) {
+            throw new Error(`newZoneId already exists: ${copyId}`);
+          }
+        }
         destinationKeys.forEach((key) => { plan.cells[key] = { categoryId: zone.categoryId, zoneId: copyId }; });
         sync("API zone copied");
         return success({ zoneId: copyId });

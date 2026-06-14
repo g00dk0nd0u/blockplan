@@ -36,6 +36,17 @@ test("BlockPlan hidden API can create and validate a plan", async ({ page }) => 
   expect(summary.dashboard.lab.cellCount).toBe(6);
   expect(summary.zones).toHaveLength(3);
 
+  const duplicateCopy = await page.evaluate(() => {
+    const beforeZones = window.BlockPlanAPI.getZones();
+    const result = window.BlockPlanAPI.copyZone({ zoneId: "office-a", dx: 10, dy: 0, newZoneId: "meeting-a" });
+    const afterZones = window.BlockPlanAPI.getZones();
+    return { result, beforeZones, afterZones };
+  });
+  expect(duplicateCopy.result.ok).toBe(false);
+  expect(duplicateCopy.afterZones).toHaveLength(duplicateCopy.beforeZones.length);
+  expect(duplicateCopy.afterZones.find((zone) => zone.zoneId === "office-a").cellKeys).toHaveLength(12);
+  expect(duplicateCopy.afterZones.find((zone) => zone.zoneId === "meeting-a").cellKeys).toHaveLength(6);
+
   const validation = await page.evaluate(() => window.BlockPlanAPI.validatePlan());
   expect(validation.ok).toBe(true);
   expect(validation.cellCount).toBe(24);
