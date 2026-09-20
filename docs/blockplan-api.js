@@ -86,6 +86,13 @@
     return exportCanvas.toDataURL("image/png");
   }
 
+  function nextDiagramId(prefix, items) {
+    const ids = new Set(items.map((item) => item.id));
+    let number = 1;
+    while (ids.has(`${prefix}-${number}`)) number += 1;
+    return `${prefix}-${number}`;
+  }
+
   const api = {
     version: 1,
 
@@ -95,7 +102,9 @@
 
     setPlan(planJson) {
       try {
-        plan = normalizePlan(typeof planJson === "string" ? JSON.parse(planJson) : planJson);
+        const source = typeof planJson === "string" ? JSON.parse(planJson) : planJson;
+        const candidate = normalizePlan(source);
+        plan = candidate;
         activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
         sync("API plan loaded");
         return success({ plan: serializePlanForSave() });
@@ -240,6 +249,102 @@
     getBounds() { try { return getCellBounds(); } catch (error) { return failure(error); } },
     fitToView() { try { fitAllZonesToView(); return success({ zoom: view.zoom, panX: view.panX, panY: view.panY }); } catch (error) { return failure(error); } },
     exportPngDataUrl() { try { return exportCanvasDataUrl(); } catch (error) { return failure(error); } },
+
+    getBubbleDiagram() { try { return cloneBubbleDiagram(plan.bubbleDiagram); } catch (error) { return failure(error); } },
+
+    setBubbleDiagram(diagram) {
+      try {
+        const candidate = normalizeBubbleDiagram(diagram);
+        requireValidBubbleDiagram(candidate);
+        plan.bubbleDiagram = candidate;
+        sync("API Bubble Diagram updated");
+        return success({ bubbleDiagram: cloneBubbleDiagram(candidate) });
+      } catch (error) { return failure(error); }
+    },
+
+    addBubble(input) {
+      try {
+        const bubble = normalizeBubble(input);
+        const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
+        candidate.bubbles.push(bubble);
+        requireValidBubbleDiagram(candidate);
+        plan.bubbleDiagram = candidate;
+        sync("API Bubble added");
+        return success({ bubble: cloneBubbleDiagram({ bubbles: [bubble] }).bubbles[0] });
+      } catch (error) { return failure(error); }
+    },
+
+    updateBubble(input) {
+      try {
+        if (!input || typeof input.id !== "string" || !input.id.trim()) throw new Error("Bubble id is required");
+        const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
+        const index = candidate.bubbles.findIndex((bubble) => bubble.id === input.id);
+        if (index < 0) throw new Error(`Unknown Bubble id: ${input.id}`);
+        const current = candidate.bubbles[index];
+        candidate.bubbles[index] = normalizeBubble({ ...current, ...input });
+        requireValidBubbleDiagram(candidate);
+        plan.bubbleDiagram = candidate;
+        sync("API Bubble updated");
+        return success({ bubble: cloneBubbleDiagram({ bubbles: [candidate.bubbles[index]] }).bubbles[0] });
+      } catch (error) { return failure(error); }
+    },
+
+    removeBubble(bubbleId) {
+      try {
+        const id = String(bubbleId || "").trim();
+        const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
+        if (!candidate.bubbles.some((bubble) => bubble.id === id)) throw new Error(`Unknown Bubble id: ${id}`);
+        candidate.bubbles = candidate.bubbles.filter((bubble) => bubble.id !== id);
+        const removedConnectorIds = candidate.connectors.filter((connector) => connector.fromBubbleId === id || connector.toBubbleId === id).map((connector) => connector.id);
+        candidate.connectors = candidate.connectors.filter((connector) => connector.fromBubbleId !== id && connector.toBubbleId !== id);
+        plan.bubbleDiagram = candidate;
+        sync("API Bubble removed");
+        return success({ bubbleId: id, removedConnectorIds });
+      } catch (error) { return failure(error); }
+    },
+
+    connectBubbles(input) {
+      try {
+        const connector = normalizeConnector({ ...input, id: input && input.id !== undefined ? input.id : nextDiagramId("connector", plan.bubbleDiagram.connectors) });
+        const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
+        candidate.connectors.push(connector);
+        requireValidBubbleDiagram(candidate);
+        plan.bubbleDiagram = candidate;
+        sync("API Connector added");
+        return success({ connector: cloneBubbleDiagram({ connectors: [connector] }).connectors[0] });
+      } catch (error) { return failure(error); }
+    },
+
+    updateConnector(input) {
+      try {
+        if (!input || typeof input.id !== "string" || !input.id.trim()) throw new Error("Connector id is required");
+        const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
+        const index = candidate.connectors.findIndex((connector) => connector.id === input.id);
+        if (index < 0) throw new Error(`Unknown Connector id: ${input.id}`);
+        candidate.connectors[index] = normalizeConnector({ ...candidate.connectors[index], ...input });
+        requireValidBubbleDiagram(candidate);
+        plan.bubbleDiagram = candidate;
+        sync("API Connector updated");
+        return success({ connector: cloneBubbleDiagram({ connectors: [candidate.connectors[index]] }).connectors[0] });
+      } catch (error) { return failure(error); }
+    },
+
+    removeConnector(connectorId) {
+      try {
+        const id = String(connectorId || "").trim();
+        if (!plan.bubbleDiagram.connectors.some((connector) => connector.id === id)) throw new Error(`Unknown Connector id: ${id}`);
+        plan.bubbleDiagram.connectors = plan.bubbleDiagram.connectors.filter((connector) => connector.id !== id);
+        sync("API Connector removed");
+        return success({ connectorId: id });
+      } catch (error) { return failure(error); }
+    },
+
+    validateBubbleDiagram() {
+      try {
+        const errors = getBubbleDiagramErrors(plan.bubbleDiagram);
+        return { ok: errors.length === 0, errors, warnings: [] };
+      } catch (error) { return failure(error); }
+    },
 
     validatePlan() {
       try {
