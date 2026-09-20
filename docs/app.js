@@ -108,6 +108,14 @@ function cloneBubbleDiagram(source) {
   return normalizeBubbleDiagram(source);
 }
 
+function cloneJsonValue(value) {
+  if (Array.isArray(value)) return value.map(cloneJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)]));
+  }
+  return value;
+}
+
 function normalizeBubble(input) {
   const bubble = input;
   if (!bubble || typeof bubble !== "object" || Array.isArray(bubble)) return bubble;
@@ -121,7 +129,7 @@ function normalizeBubble(input) {
       : bubble.position && typeof bubble.position === "object" && !Array.isArray(bubble.position) ? { ...bubble.position } : bubble.position,
     metadata: bubble.metadata === undefined
       ? {}
-      : bubble.metadata && typeof bubble.metadata === "object" && !Array.isArray(bubble.metadata) ? { ...bubble.metadata } : bubble.metadata
+      : cloneJsonValue(bubble.metadata)
   };
 }
 
@@ -133,7 +141,7 @@ function normalizeConnector(input) {
     direction: connector.direction === undefined ? null : connector.direction,
     metadata: connector.metadata === undefined
       ? {}
-      : connector.metadata && typeof connector.metadata === "object" && !Array.isArray(connector.metadata) ? { ...connector.metadata } : connector.metadata
+      : cloneJsonValue(connector.metadata)
   };
 }
 

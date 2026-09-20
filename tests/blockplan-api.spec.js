@@ -301,3 +301,49 @@ test("whole-diagram API canonicalizes optional fields but rejects missing semant
   expect(result.missingRelation.ok).toBe(false);
   expect(result.afterFailures).toEqual(result.beforeFailures);
 });
+
+test("nested Bubble and Connector metadata is defensively copied across API boundaries", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    const bubbleMetadata = { requirements: { tags: ["quiet", { access: "private" }] } };
+    const connectorMetadata = { rationale: { sources: ["brief", { author: "client" }] } };
+    const set = api.setBubbleDiagram({
+      version: 1,
+      bubbles: [
+        { id: "a", name: "A", size: { value: 10, unit: "sqm" }, metadata: bubbleMetadata },
+        { id: "b", name: "B", size: { value: 12, unit: "sqm" } }
+      ],
+      connectors: [{
+        id: "a-b",
+        fromBubbleId: "a",
+        toBubbleId: "b",
+        relationType: "near",
+        priority: "preferred",
+        metadata: connectorMetadata
+      }]
+    });
+
+    bubbleMetadata.requirements.tags[1].access = "public";
+    connectorMetadata.rationale.sources[1].author = "mutated caller";
+    const afterCallerMutation = api.getBubbleDiagram();
+
+    const returnedDiagram = api.getBubbleDiagram();
+    returnedDiagram.bubbles[0].metadata.requirements.tags[1].access = "mutated return";
+    returnedDiagram.connectors[0].metadata.rationale.sources[1].author = "mutated return";
+    const afterDiagramMutation = api.getBubbleDiagram();
+
+    const returnedPlan = api.getPlan();
+    returnedPlan.bubbleDiagram.bubbles[0].metadata.requirements.tags[0] = "mutated plan";
+    returnedPlan.bubbleDiagram.connectors[0].metadata.rationale.sources[0] = "mutated plan";
+    const afterPlanMutation = api.getPlan().bubbleDiagram;
+
+    return { set, afterCallerMutation, afterDiagramMutation, afterPlanMutation };
+  });
+
+  expect(result.set.ok).toBe(true);
+  [result.afterCallerMutation, result.afterDiagramMutation, result.afterPlanMutation].forEach((diagram) => {
+    expect(diagram.bubbles[0].metadata).toEqual({ requirements: { tags: ["quiet", { access: "private" }] } });
+    expect(diagram.connectors[0].metadata).toEqual({ rationale: { sources: ["brief", { author: "client" }] } });
+  });
+});
