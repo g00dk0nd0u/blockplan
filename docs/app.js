@@ -1713,6 +1713,7 @@ function loadJson(event) {
       persistPlan();
       renderCategoryList();
       updateUi();
+      if (typeof window.refreshBubbleEditor === "function") window.refreshBubbleEditor();
       showSaveStatus("JSON loaded");
     } catch (error) {
       showSaveStatus("Load failed");

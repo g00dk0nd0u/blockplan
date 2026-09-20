@@ -21,6 +21,11 @@
           </div>
         </div>
 
+        <div class="mode-switch" role="group" aria-label="Editor mode" data-testid="mode-switch">
+          <button id="bubbleModeButton" data-testid="mode-bubble" type="button">Bubble</button>
+          <button id="blockModeButton" data-testid="mode-block" type="button" class="is-active" aria-pressed="true">Block Plan</button>
+        </div>
+
         <div class="tool-actions" aria-label="Tools">
           <button id="selectToolButton" data-testid="tool-select" type="button" class="tool-button" data-tool="select">
             <span class="tool-icon" aria-hidden="true">↖</span>
@@ -66,6 +71,16 @@
           <span id="zoomStatus">100%</span>
           <span id="cellStatus">Cell 0, 0</span>
         </div>
+      </main>
+
+      <main id="bubbleWorkspace" data-testid="bubble-workspace" class="bubble-workspace" aria-label="Bubble Diagram workspace" hidden>
+        <div id="bubbleScene" class="bubble-scene">
+          <svg id="bubbleConnectorLayer" class="bubble-connectors" aria-label="Bubble connections"></svg>
+          <div id="bubbleLayer" class="bubble-layer"></div>
+        </div>
+        <button id="addBubbleButton" data-testid="add-bubble" class="add-bubble-button" type="button" aria-label="Add Bubble">+</button>
+        <div id="bubbleZoomStatus" class="bubble-zoom-status">100%</div>
+        <div id="connectorPopover" data-testid="connector-popover" class="connector-popover" hidden></div>
       </main>
 
       <aside class="right-sidebar panel">
@@ -137,6 +152,7 @@
 
     <script src="app.js"></script>
     <script src="interaction-patch.js"></script>
+    <script src="bubble-editor.js"></script>
     <script src="blockplan-api.js"></script>
   </body>
 </html>

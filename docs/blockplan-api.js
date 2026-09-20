@@ -17,6 +17,7 @@
     persistPlan();
     renderCategoryList();
     updateUi();
+    if (typeof window.refreshBubbleEditor === "function") window.refreshBubbleEditor();
     if (status) showSaveStatus(status);
   }
 
