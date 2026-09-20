@@ -206,3 +206,98 @@ test("invalid Bubble Diagrams are rejected without mutating saved state", async 
   expect(result.after).toEqual(result.before);
   expect(result.validation).toEqual({ ok: true, errors: [], warnings: [] });
 });
+
+test("normal JSON Load shares Bubble Diagram normalization and validation", async ({ page }) => {
+  await page.goto(appUrl);
+  const input = page.locator("[data-testid='load-json-input']");
+
+  const oldPlan = {
+    version: 1,
+    moduleSizeMm: 3600,
+    categories: [{ id: "office", name: "Office", color: "#AABB9C" }],
+    cells: { "1,1": { categoryId: "office", zoneId: "old-zone" } },
+    underlay: null
+  };
+  await input.setInputFiles({ name: "old-plan.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(oldPlan)) });
+  await expect(page.locator("[data-testid='save-status']")).toHaveText("JSON loaded");
+  let loaded = await page.evaluate(() => window.BlockPlanAPI.getPlan());
+  expect(loaded.bubbleDiagram).toEqual({ version: 1, bubbles: [], connectors: [] });
+  expect(loaded.cells["1,1"]).toEqual({ categoryId: "office", zoneId: "old-zone" });
+
+  const validPlan = {
+    ...oldPlan,
+    cells: { "4,5": { categoryId: "office", zoneId: "valid-zone" } },
+    bubbleDiagram: {
+      version: 1,
+      bubbles: [
+        { id: "room", name: "Room", size: { value: 15, unit: "sqm" } },
+        { id: "hall", name: "Hall", size: { value: 8, unit: "sqm" } }
+      ],
+      connectors: [{ id: "room-hall", fromBubbleId: "room", toBubbleId: "hall", relationType: "near", priority: "preferred" }]
+    }
+  };
+  await input.setInputFiles({ name: "valid-plan.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(validPlan)) });
+  await expect(page.locator("[data-testid='save-status']")).toHaveText("JSON loaded");
+  loaded = await page.evaluate(() => window.BlockPlanAPI.getPlan());
+  expect(loaded.bubbleDiagram.bubbles[0]).toMatchObject({ type: "space", quantity: 1, position: { x: 0, y: 0 }, metadata: {} });
+  expect(loaded.bubbleDiagram.connectors[0]).toMatchObject({ direction: null, metadata: {} });
+
+  const beforeInvalidLoad = loaded;
+  const malformedPlan = {
+    ...validPlan,
+    cells: { "99,99": { categoryId: "office", zoneId: "must-not-load" } },
+    bubbleDiagram: {
+      version: 1,
+      bubbles: [{ id: "room", name: "Room", size: { value: 15, unit: "sqm" } }],
+      connectors: [{ id: "dangling", fromBubbleId: "room", toBubbleId: "missing", relationType: "near", priority: "required" }]
+    }
+  };
+  await input.setInputFiles({ name: "malformed-plan.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(malformedPlan)) });
+  await expect(page.locator("[data-testid='save-status']")).toHaveText("Load failed");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getPlan())).toEqual(beforeInvalidLoad);
+});
+
+test("whole-diagram API canonicalizes optional fields but rejects missing semantics", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    const accepted = api.setBubbleDiagram({
+      version: 1,
+      bubbles: [
+        { id: "a", name: "A", size: { value: 10, unit: "sqm" } },
+        { id: "b", name: "B", size: { value: 12, unit: "sqm" } }
+      ],
+      connectors: [{ id: "a-b", fromBubbleId: "a", toBubbleId: "b", relationType: "adjacent", priority: "required" }]
+    });
+    const beforeFailures = api.getBubbleDiagram();
+    const missingBubbleId = api.addBubble({ name: "No ID", size: { value: 1, unit: "sqm" } });
+    const missingBubbleName = api.setBubbleDiagram({
+      version: 1,
+      bubbles: [{ id: "nameless", size: { value: 1, unit: "sqm" } }],
+      connectors: []
+    });
+    const missingBubbleSize = api.addBubble({ id: "no-size", name: "No size" });
+    const missingRelation = api.connectBubbles({ id: "bad-connector", fromBubbleId: "a", toBubbleId: "b", priority: "required" });
+    return { accepted, beforeFailures, missingBubbleId, missingBubbleName, missingBubbleSize, missingRelation, afterFailures: api.getBubbleDiagram() };
+  });
+
+  expect(result.accepted.ok).toBe(true);
+  expect(result.accepted.bubbleDiagram.bubbles).toEqual([
+    { id: "a", name: "A", type: "space", size: { value: 10, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 }, metadata: {} },
+    { id: "b", name: "B", type: "space", size: { value: 12, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 }, metadata: {} }
+  ]);
+  expect(result.accepted.bubbleDiagram.connectors[0]).toEqual({
+    id: "a-b",
+    fromBubbleId: "a",
+    toBubbleId: "b",
+    relationType: "adjacent",
+    priority: "required",
+    direction: null,
+    metadata: {}
+  });
+  expect(result.missingBubbleId.ok).toBe(false);
+  expect(result.missingBubbleName.ok).toBe(false);
+  expect(result.missingBubbleSize.ok).toBe(false);
+  expect(result.missingRelation.ok).toBe(false);
+  expect(result.afterFailures).toEqual(result.beforeFailures);
+});

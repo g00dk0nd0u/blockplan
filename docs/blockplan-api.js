@@ -86,89 +86,11 @@
     return exportCanvas.toDataURL("image/png");
   }
 
-  function bubbleDiagramErrors(diagram) {
-    const errors = [];
-    const add = (code, path, message) => errors.push({ code, path, message });
-    if (!diagram || typeof diagram !== "object" || Array.isArray(diagram)) {
-      add("invalid_diagram", "bubbleDiagram", "Bubble Diagram must be an object");
-      return errors;
-    }
-    if (diagram.version !== 1) add("invalid_version", "bubbleDiagram.version", "Bubble Diagram version must be 1");
-    if (!Array.isArray(diagram.bubbles)) add("invalid_bubbles", "bubbleDiagram.bubbles", "bubbles must be an array");
-    if (!Array.isArray(diagram.connectors)) add("invalid_connectors", "bubbleDiagram.connectors", "connectors must be an array");
-    const bubbleIds = new Set();
-    (Array.isArray(diagram.bubbles) ? diagram.bubbles : []).forEach((bubble, index) => {
-      const path = `bubbleDiagram.bubbles[${index}]`;
-      if (!bubble || typeof bubble !== "object" || Array.isArray(bubble)) {
-        add("invalid_bubble", path, "Bubble must be an object");
-        return;
-      }
-      if (typeof bubble.id !== "string" || !bubble.id.trim()) add("missing_bubble_id", `${path}.id`, "Bubble id is required");
-      else if (bubbleIds.has(bubble.id)) add("duplicate_bubble_id", `${path}.id`, `Duplicate Bubble id: ${bubble.id}`);
-      else bubbleIds.add(bubble.id);
-      if (typeof bubble.name !== "string" || !bubble.name.trim()) add("invalid_bubble_name", `${path}.name`, "Bubble name is required");
-      if (typeof bubble.type !== "string" || !bubble.type.trim()) add("invalid_bubble_type", `${path}.type`, "Bubble type is required");
-      if (!Number.isInteger(bubble.quantity) || bubble.quantity <= 0) add("invalid_quantity", `${path}.quantity`, "quantity must be a positive integer");
-      if (!bubble.size || typeof bubble.size !== "object" || !Number.isFinite(bubble.size.value) || bubble.size.value <= 0) add("invalid_size_value", `${path}.size.value`, "size.value must be a positive number");
-      if (!bubble.size || typeof bubble.size.unit !== "string" || !bubble.size.unit.trim()) add("invalid_size_unit", `${path}.size.unit`, "size.unit is required");
-      if (!bubble.position || typeof bubble.position !== "object" || !Number.isFinite(bubble.position.x) || !Number.isFinite(bubble.position.y)) add("invalid_position", `${path}.position`, "position.x and position.y must be finite numbers");
-      if (!bubble.metadata || typeof bubble.metadata !== "object" || Array.isArray(bubble.metadata)) add("invalid_metadata", `${path}.metadata`, "metadata must be an object");
-    });
-    const connectorIds = new Set();
-    (Array.isArray(diagram.connectors) ? diagram.connectors : []).forEach((connector, index) => {
-      const path = `bubbleDiagram.connectors[${index}]`;
-      if (!connector || typeof connector !== "object" || Array.isArray(connector)) {
-        add("invalid_connector", path, "Connector must be an object");
-        return;
-      }
-      if (typeof connector.id !== "string" || !connector.id.trim()) add("missing_connector_id", `${path}.id`, "Connector id is required");
-      else if (connectorIds.has(connector.id)) add("duplicate_connector_id", `${path}.id`, `Duplicate Connector id: ${connector.id}`);
-      else connectorIds.add(connector.id);
-      if (!bubbleIds.has(connector.fromBubbleId)) add("dangling_connector", `${path}.fromBubbleId`, `Unknown fromBubbleId: ${connector.fromBubbleId}`);
-      if (!bubbleIds.has(connector.toBubbleId)) add("dangling_connector", `${path}.toBubbleId`, `Unknown toBubbleId: ${connector.toBubbleId}`);
-      if (connector.fromBubbleId && connector.fromBubbleId === connector.toBubbleId) add("self_connection", path, "A Bubble cannot connect to itself");
-      if (!BUBBLE_RELATION_TYPES.includes(connector.relationType)) add("unsupported_relation_type", `${path}.relationType`, `Unsupported relationType: ${connector.relationType}`);
-      if (!BUBBLE_PRIORITIES.includes(connector.priority)) add("invalid_priority", `${path}.priority`, `Invalid priority: ${connector.priority}`);
-      if (connector.direction !== null && (typeof connector.direction !== "string" || !connector.direction.trim())) add("invalid_direction", `${path}.direction`, "direction must be null or a non-empty string");
-      if (!connector.metadata || typeof connector.metadata !== "object" || Array.isArray(connector.metadata)) add("invalid_metadata", `${path}.metadata`, "metadata must be an object");
-    });
-    return errors;
-  }
-
-  function requireValidBubbleDiagram(diagram) {
-    const errors = bubbleDiagramErrors(diagram);
-    if (errors.length) throw new Error(errors[0].message);
-  }
-
   function nextDiagramId(prefix, items) {
     const ids = new Set(items.map((item) => item.id));
     let number = 1;
     while (ids.has(`${prefix}-${number}`)) number += 1;
     return `${prefix}-${number}`;
-  }
-
-  function normalizedBubble(input, fallbackId) {
-    return {
-      id: String(input && input.id !== undefined ? input.id : fallbackId).trim(),
-      name: String(input && input.name !== undefined ? input.name : "").trim(),
-      type: String(input && input.type !== undefined ? input.type : "space").trim(),
-      size: input && input.size && typeof input.size === "object" ? { value: input.size.value, unit: input.size.unit } : input && input.size,
-      quantity: input && input.quantity !== undefined ? input.quantity : 1,
-      position: input && input.position && typeof input.position === "object" ? { x: input.position.x, y: input.position.y } : { x: 0, y: 0 },
-      metadata: input && input.metadata !== undefined ? input.metadata : {}
-    };
-  }
-
-  function normalizedConnector(input, fallbackId) {
-    return {
-      id: String(input && input.id !== undefined ? input.id : fallbackId).trim(),
-      fromBubbleId: input && input.fromBubbleId,
-      toBubbleId: input && input.toBubbleId,
-      relationType: input && input.relationType,
-      priority: input && input.priority,
-      direction: input && input.direction !== undefined ? input.direction : null,
-      metadata: input && input.metadata !== undefined ? input.metadata : {}
-    };
   }
 
   const api = {
@@ -181,9 +103,7 @@
     setPlan(planJson) {
       try {
         const source = typeof planJson === "string" ? JSON.parse(planJson) : planJson;
-        if (source && Object.prototype.hasOwnProperty.call(source, "bubbleDiagram")) requireValidBubbleDiagram(source.bubbleDiagram);
         const candidate = normalizePlan(source);
-        requireValidBubbleDiagram(candidate.bubbleDiagram);
         plan = candidate;
         activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
         sync("API plan loaded");
@@ -334,8 +254,7 @@
 
     setBubbleDiagram(diagram) {
       try {
-        requireValidBubbleDiagram(diagram);
-        const candidate = cloneBubbleDiagram(diagram);
+        const candidate = normalizeBubbleDiagram(diagram);
         requireValidBubbleDiagram(candidate);
         plan.bubbleDiagram = candidate;
         sync("API Bubble Diagram updated");
@@ -345,7 +264,7 @@
 
     addBubble(input) {
       try {
-        const bubble = normalizedBubble(input, nextDiagramId("bubble", plan.bubbleDiagram.bubbles));
+        const bubble = normalizeBubble(input);
         const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
         candidate.bubbles.push(bubble);
         requireValidBubbleDiagram(candidate);
@@ -362,7 +281,7 @@
         const index = candidate.bubbles.findIndex((bubble) => bubble.id === input.id);
         if (index < 0) throw new Error(`Unknown Bubble id: ${input.id}`);
         const current = candidate.bubbles[index];
-        candidate.bubbles[index] = normalizedBubble({ ...current, ...input, size: input.size === undefined ? current.size : input.size, position: input.position === undefined ? current.position : input.position, metadata: input.metadata === undefined ? current.metadata : input.metadata }, current.id);
+        candidate.bubbles[index] = normalizeBubble({ ...current, ...input });
         requireValidBubbleDiagram(candidate);
         plan.bubbleDiagram = candidate;
         sync("API Bubble updated");
@@ -386,7 +305,7 @@
 
     connectBubbles(input) {
       try {
-        const connector = normalizedConnector(input, nextDiagramId("connector", plan.bubbleDiagram.connectors));
+        const connector = normalizeConnector({ ...input, id: input && input.id !== undefined ? input.id : nextDiagramId("connector", plan.bubbleDiagram.connectors) });
         const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
         candidate.connectors.push(connector);
         requireValidBubbleDiagram(candidate);
@@ -402,7 +321,7 @@
         const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
         const index = candidate.connectors.findIndex((connector) => connector.id === input.id);
         if (index < 0) throw new Error(`Unknown Connector id: ${input.id}`);
-        candidate.connectors[index] = normalizedConnector({ ...candidate.connectors[index], ...input }, input.id);
+        candidate.connectors[index] = normalizeConnector({ ...candidate.connectors[index], ...input });
         requireValidBubbleDiagram(candidate);
         plan.bubbleDiagram = candidate;
         sync("API Connector updated");
@@ -422,7 +341,7 @@
 
     validateBubbleDiagram() {
       try {
-        const errors = bubbleDiagramErrors(plan.bubbleDiagram);
+        const errors = getBubbleDiagramErrors(plan.bubbleDiagram);
         return { ok: errors.length === 0, errors, warnings: [] };
       } catch (error) { return failure(error); }
     },

@@ -105,24 +105,95 @@ function clonePlan(source) {
 }
 
 function cloneBubbleDiagram(source) {
-  const diagram = source && typeof source === "object" ? source : {};
+  return normalizeBubbleDiagram(source);
+}
+
+function normalizeBubble(input) {
+  const bubble = input;
+  if (!bubble || typeof bubble !== "object" || Array.isArray(bubble)) return bubble;
   return {
-    version: Number(diagram.version) || 1,
-    bubbles: Array.isArray(diagram.bubbles) ? diagram.bubbles.map((bubble) => ({
-      ...bubble,
-      size: bubble && bubble.size && typeof bubble.size === "object" ? { ...bubble.size } : bubble.size,
-      position: bubble && bubble.position && typeof bubble.position === "object" ? { ...bubble.position } : bubble.position,
-      metadata: bubble && bubble.metadata && typeof bubble.metadata === "object" && !Array.isArray(bubble.metadata)
-        ? { ...bubble.metadata }
-        : bubble.metadata
-    })) : [],
-    connectors: Array.isArray(diagram.connectors) ? diagram.connectors.map((connector) => ({
-      ...connector,
-      metadata: connector && connector.metadata && typeof connector.metadata === "object" && !Array.isArray(connector.metadata)
-        ? { ...connector.metadata }
-        : connector.metadata
-    })) : []
+    ...bubble,
+    type: bubble.type === undefined ? "space" : bubble.type,
+    size: bubble.size && typeof bubble.size === "object" && !Array.isArray(bubble.size) ? { ...bubble.size } : bubble.size,
+    quantity: bubble.quantity === undefined ? 1 : bubble.quantity,
+    position: bubble.position === undefined
+      ? { x: 0, y: 0 }
+      : bubble.position && typeof bubble.position === "object" && !Array.isArray(bubble.position) ? { ...bubble.position } : bubble.position,
+    metadata: bubble.metadata === undefined
+      ? {}
+      : bubble.metadata && typeof bubble.metadata === "object" && !Array.isArray(bubble.metadata) ? { ...bubble.metadata } : bubble.metadata
   };
+}
+
+function normalizeConnector(input) {
+  const connector = input;
+  if (!connector || typeof connector !== "object" || Array.isArray(connector)) return connector;
+  return {
+    ...connector,
+    direction: connector.direction === undefined ? null : connector.direction,
+    metadata: connector.metadata === undefined
+      ? {}
+      : connector.metadata && typeof connector.metadata === "object" && !Array.isArray(connector.metadata) ? { ...connector.metadata } : connector.metadata
+  };
+}
+
+function normalizeBubbleDiagram(source) {
+  if (source === undefined) return { version: 1, bubbles: [], connectors: [] };
+  const diagram = source;
+  if (!diagram || typeof diagram !== "object" || Array.isArray(diagram)) return diagram;
+  return {
+    version: diagram.version === undefined ? 1 : diagram.version,
+    bubbles: Array.isArray(diagram.bubbles) ? diagram.bubbles.map(normalizeBubble) : diagram.bubbles,
+    connectors: Array.isArray(diagram.connectors) ? diagram.connectors.map(normalizeConnector) : diagram.connectors
+  };
+}
+
+function getBubbleDiagramErrors(diagram) {
+  const errors = [];
+  const add = (code, path, message) => errors.push({ code, path, message });
+  if (!diagram || typeof diagram !== "object" || Array.isArray(diagram)) {
+    add("invalid_diagram", "bubbleDiagram", "Bubble Diagram must be an object");
+    return errors;
+  }
+  if (diagram.version !== 1) add("invalid_version", "bubbleDiagram.version", "Bubble Diagram version must be 1");
+  if (!Array.isArray(diagram.bubbles)) add("invalid_bubbles", "bubbleDiagram.bubbles", "bubbles must be an array");
+  if (!Array.isArray(diagram.connectors)) add("invalid_connectors", "bubbleDiagram.connectors", "connectors must be an array");
+  const bubbleIds = new Set();
+  (Array.isArray(diagram.bubbles) ? diagram.bubbles : []).forEach((bubble, index) => {
+    const path = `bubbleDiagram.bubbles[${index}]`;
+    if (!bubble || typeof bubble !== "object" || Array.isArray(bubble)) { add("invalid_bubble", path, "Bubble must be an object"); return; }
+    if (typeof bubble.id !== "string" || !bubble.id.trim()) add("missing_bubble_id", `${path}.id`, "Bubble id is required");
+    else if (bubbleIds.has(bubble.id)) add("duplicate_bubble_id", `${path}.id`, `Duplicate Bubble id: ${bubble.id}`);
+    else bubbleIds.add(bubble.id);
+    if (typeof bubble.name !== "string" || !bubble.name.trim()) add("invalid_bubble_name", `${path}.name`, "Bubble name is required");
+    if (typeof bubble.type !== "string" || !bubble.type.trim()) add("invalid_bubble_type", `${path}.type`, "Bubble type is required");
+    if (!Number.isInteger(bubble.quantity) || bubble.quantity <= 0) add("invalid_quantity", `${path}.quantity`, "quantity must be a positive integer");
+    if (!bubble.size || typeof bubble.size !== "object" || !Number.isFinite(bubble.size.value) || bubble.size.value <= 0) add("invalid_size_value", `${path}.size.value`, "size.value must be a positive number");
+    if (!bubble.size || typeof bubble.size.unit !== "string" || !bubble.size.unit.trim()) add("invalid_size_unit", `${path}.size.unit`, "size.unit is required");
+    if (!bubble.position || typeof bubble.position !== "object" || !Number.isFinite(bubble.position.x) || !Number.isFinite(bubble.position.y)) add("invalid_position", `${path}.position`, "position.x and position.y must be finite numbers");
+    if (!bubble.metadata || typeof bubble.metadata !== "object" || Array.isArray(bubble.metadata)) add("invalid_metadata", `${path}.metadata`, "metadata must be an object");
+  });
+  const connectorIds = new Set();
+  (Array.isArray(diagram.connectors) ? diagram.connectors : []).forEach((connector, index) => {
+    const path = `bubbleDiagram.connectors[${index}]`;
+    if (!connector || typeof connector !== "object" || Array.isArray(connector)) { add("invalid_connector", path, "Connector must be an object"); return; }
+    if (typeof connector.id !== "string" || !connector.id.trim()) add("missing_connector_id", `${path}.id`, "Connector id is required");
+    else if (connectorIds.has(connector.id)) add("duplicate_connector_id", `${path}.id`, `Duplicate Connector id: ${connector.id}`);
+    else connectorIds.add(connector.id);
+    if (!bubbleIds.has(connector.fromBubbleId)) add("dangling_connector", `${path}.fromBubbleId`, `Unknown fromBubbleId: ${connector.fromBubbleId}`);
+    if (!bubbleIds.has(connector.toBubbleId)) add("dangling_connector", `${path}.toBubbleId`, `Unknown toBubbleId: ${connector.toBubbleId}`);
+    if (connector.fromBubbleId && connector.fromBubbleId === connector.toBubbleId) add("self_connection", path, "A Bubble cannot connect to itself");
+    if (!BUBBLE_RELATION_TYPES.includes(connector.relationType)) add("unsupported_relation_type", `${path}.relationType`, `Unsupported relationType: ${connector.relationType}`);
+    if (!BUBBLE_PRIORITIES.includes(connector.priority)) add("invalid_priority", `${path}.priority`, `Invalid priority: ${connector.priority}`);
+    if (connector.direction !== null && (typeof connector.direction !== "string" || !connector.direction.trim())) add("invalid_direction", `${path}.direction`, "direction must be null or a non-empty string");
+    if (!connector.metadata || typeof connector.metadata !== "object" || Array.isArray(connector.metadata)) add("invalid_metadata", `${path}.metadata`, "metadata must be an object");
+  });
+  return errors;
+}
+
+function requireValidBubbleDiagram(diagram) {
+  const errors = getBubbleDiagramErrors(diagram);
+  if (errors.length) throw new Error(errors[0].message);
 }
 
 function cloneUnderlay(source) {
@@ -1568,6 +1639,7 @@ function normalizePlan(source) {
     color: defaultCategoryColors.get(category.id) || category.color
   }));
   assignMissingZoneIds(normalized);
+  requireValidBubbleDiagram(normalized.bubbleDiagram);
 
   return normalized;
 }
@@ -1622,8 +1694,9 @@ function loadJson(event) {
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     try {
+      const nextPlan = normalizePlan(JSON.parse(reader.result));
       if (typeof pushUndoState === "function") pushUndoState();
-      plan = normalizePlan(JSON.parse(reader.result));
+      plan = nextPlan;
       selectedZoneSignature = null;
       transformDraft = null;
       activeCategoryId = plan.categories.some((item) => item.id === activeCategoryId)
