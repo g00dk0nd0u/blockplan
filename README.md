@@ -83,11 +83,19 @@ Plans are stored as simple JSON:
     "0,0": {
       "categoryId": "office"
     }
+  },
+  "underlay": null,
+  "bubbleDiagram": {
+    "version": 1,
+    "bubbles": [],
+    "connectors": []
   }
 }
 ```
 
 Cells remain the source of truth. Dashboard metrics and connected zones are calculated from the cell map.
+
+The optional Bubble Diagram data layer stores future planning requirements alongside the cell geometry. A Bubble's `position` is presentation state only; semantic relationships such as `adjacent`, `near`, and `separate` exist only as explicit Connectors. The hidden `BlockPlanAPI` supports Bubble and Connector CRUD plus contract validation. A visual Bubble Diagram editor is not implemented yet.
 
 ## Not Implemented Yet
 

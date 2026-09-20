@@ -6,6 +6,8 @@ const CANVAS_BACKGROUND = "#E8E5E0";
 const GRID_DOT = "rgba(126, 116, 104, 0.36)";
 const GRID_DOT_SOFT = "rgba(126, 116, 104, 0.22)";
 const TOOLS = ["select", "paint", "copy", "cut", "erase", "merge", "rotate"];
+const BUBBLE_RELATION_TYPES = ["adjacent", "near", "separate"];
+const BUBBLE_PRIORITIES = ["required", "preferred", "optional"];
 
 const categories = [
   { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
@@ -32,7 +34,8 @@ const defaultPlan = {
   moduleSizeMm: 3600,
   categories,
   cells: {},
-  underlay: null
+  underlay: null,
+  bubbleDiagram: { version: 1, bubbles: [], connectors: [] }
 };
 
 let plan = clonePlan(defaultPlan);
@@ -96,7 +99,29 @@ function clonePlan(source) {
     cells: source.cells
       ? Object.fromEntries(Object.entries(source.cells).map(([key, cell]) => [key, { ...cell }]))
       : {},
-    underlay: source.underlay ? cloneUnderlay(source.underlay) : null
+    underlay: source.underlay ? cloneUnderlay(source.underlay) : null,
+    bubbleDiagram: cloneBubbleDiagram(source.bubbleDiagram)
+  };
+}
+
+function cloneBubbleDiagram(source) {
+  const diagram = source && typeof source === "object" ? source : {};
+  return {
+    version: Number(diagram.version) || 1,
+    bubbles: Array.isArray(diagram.bubbles) ? diagram.bubbles.map((bubble) => ({
+      ...bubble,
+      size: bubble && bubble.size && typeof bubble.size === "object" ? { ...bubble.size } : bubble.size,
+      position: bubble && bubble.position && typeof bubble.position === "object" ? { ...bubble.position } : bubble.position,
+      metadata: bubble && bubble.metadata && typeof bubble.metadata === "object" && !Array.isArray(bubble.metadata)
+        ? { ...bubble.metadata }
+        : bubble.metadata
+    })) : [],
+    connectors: Array.isArray(diagram.connectors) ? diagram.connectors.map((connector) => ({
+      ...connector,
+      metadata: connector && connector.metadata && typeof connector.metadata === "object" && !Array.isArray(connector.metadata)
+        ? { ...connector.metadata }
+        : connector.metadata
+    })) : []
   };
 }
 
@@ -1521,7 +1546,8 @@ function normalizePlan(source) {
     moduleSizeMm: source.moduleSizeMm,
     categories: Array.isArray(source.categories) && source.categories.length ? source.categories : categories,
     cells: source.cells && typeof source.cells === "object" ? source.cells : {},
-    underlay: source.underlay && typeof source.underlay === "object" ? { ...source.underlay, needsRelink: true } : null
+    underlay: source.underlay && typeof source.underlay === "object" ? { ...source.underlay, needsRelink: true } : null,
+    bubbleDiagram: source.bubbleDiagram
   });
 
   Object.keys(normalized.cells).forEach((key) => {

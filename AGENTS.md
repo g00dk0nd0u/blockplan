@@ -13,6 +13,8 @@
 - Categories and module size are part of the saved plan state.
 - Dashboard values, zones, canvas rendering, PNG exports, screenshots, and Playwright artifacts are derived outputs.
 - Do not treat screenshots or PNG files as editable source data.
+- Bubble `position` is presentation state only; semantic relationships must be stored as explicit Bubble Diagram Connectors.
+- Bubble Diagram data must not replace `plan.cells` as the planning geometry source of truth.
 
 ## Hidden Browser API
 
