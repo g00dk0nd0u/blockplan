@@ -1724,7 +1724,7 @@ function loadJson(event) {
   reader.addEventListener("load", () => {
     try {
       const nextPlan = normalizePlan(JSON.parse(reader.result));
-      if (typeof pushUndoState === "function") pushUndoState();
+      if (typeof pushUndoState === "function") pushUndoState({ fullPlanReplacement: true });
       plan = nextPlan;
       selectedZoneSignature = null;
       transformDraft = null;
