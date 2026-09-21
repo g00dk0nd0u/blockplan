@@ -73,29 +73,7 @@
           <span id="cellStatus">Cell 0, 0</span>
         </div>
         <section id="reviewDock" data-testid="review-dock" class="review-dock" aria-label="Variant review" hidden></section>
-      </main>
-
-      <main id="bubbleWorkspace" data-testid="bubble-workspace" class="bubble-workspace" aria-label="Bubble Diagram workspace" hidden>
-        <div id="bubbleScene" class="bubble-scene">
-          <svg id="bubbleConnectorLayer" class="bubble-connectors" aria-label="Bubble connections"></svg>
-          <div id="bubbleLayer" class="bubble-layer"></div>
-        </div>
-        <button id="addBubbleButton" data-testid="add-bubble" class="add-bubble-button" type="button" aria-label="Add Bubble" aria-describedby="addBubbleTooltip">+<span id="addBubbleTooltip" role="tooltip">Add Bubble · Double-click canvas</span></button>
-        <div id="bubbleZoomStatus" class="bubble-zoom-status">100%</div>
-        <div id="connectorPopover" data-testid="connector-popover" class="connector-popover" hidden></div>
-      </main>
-
-      <aside class="right-sidebar panel">
-        <section>
-          <div class="section-heading-row">
-            <h2>Dashboard</h2>
-            <button id="addCategoryButton" data-testid="add-category" type="button" class="icon-button" title="Add category">＋</button>
-          </div>
-          <div id="dashboard" data-testid="dashboard" class="dashboard"></div>
-        </section>
-
         <section id="underlayDock" data-testid="underlay-dock" class="underlay-panel" aria-label="Underlay controls">
-          <h2>Underlay</h2>
           <div class="underlay-controls">
             <p id="underlayStatus" class="underlay-status">No underlay linked</p>
             <div class="underlay-action-row">
@@ -118,6 +96,26 @@
             </label>
             <p class="help-copy">Linked files are references only. JSON stores metadata, not file contents.</p>
           </div>
+        </section>
+      </main>
+
+      <main id="bubbleWorkspace" data-testid="bubble-workspace" class="bubble-workspace" aria-label="Bubble Diagram workspace" hidden>
+        <div id="bubbleScene" class="bubble-scene">
+          <svg id="bubbleConnectorLayer" class="bubble-connectors" aria-label="Bubble connections"></svg>
+          <div id="bubbleLayer" class="bubble-layer"></div>
+        </div>
+        <button id="addBubbleButton" data-testid="add-bubble" class="add-bubble-button" type="button" aria-label="Add Bubble" aria-describedby="addBubbleTooltip">+<span id="addBubbleTooltip" role="tooltip">Add Bubble · Double-click canvas</span></button>
+        <div id="bubbleZoomStatus" class="bubble-zoom-status">100%</div>
+        <div id="connectorPopover" data-testid="connector-popover" class="connector-popover" hidden></div>
+      </main>
+
+      <aside class="right-sidebar panel">
+        <section>
+          <div class="section-heading-row">
+            <h2>Dashboard</h2>
+            <button id="addCategoryButton" data-testid="add-category" type="button" class="icon-button" title="Add category">＋</button>
+          </div>
+          <div id="dashboard" data-testid="dashboard" class="dashboard"></div>
         </section>
 
         <section>
