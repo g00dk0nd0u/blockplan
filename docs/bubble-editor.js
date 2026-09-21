@@ -264,7 +264,7 @@
           return;
         }
         if (field === "name") edited.name = nextValue;
-        else if (field === "size") edited.size = nextValue === null ? null : { value: nextValue, unit: "sqm" };
+        else if (field === "size") edited.size = nextValue === null ? null : { value: nextValue, unit: edited.size === null ? "sqm" : edited.size.unit };
         else edited.quantity = nextValue;
         try { commitDiagram(candidate, "Bubble updated"); } catch (error) { render(); showSaveStatus("Invalid Bubble value"); }
       } else render();

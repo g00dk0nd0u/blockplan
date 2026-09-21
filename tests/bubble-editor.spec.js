@@ -206,6 +206,41 @@ test("normal JSON Load restores the visible Bubble Diagram", async ({ page }) =>
   await expect(page.locator("[data-testid='connector-bedroom-hall']")).toHaveCount(1);
 });
 
+test("Area editing preserves an existing unit and defaults a new Area to sqm", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => {
+    localStorage.clear();
+    window.BlockPlanAPI.setBubbleDiagram({
+      version: 1,
+      bubbles: [
+        { id: "existing", name: "Existing", size: { value: 20, unit: "m²" }, quantity: null, position: { x: 260, y: 220 } },
+        { id: "unspecified", name: "Unspecified", size: null, quantity: null, position: { x: 520, y: 220 } }
+      ],
+      connectors: []
+    });
+  });
+  await page.locator("[data-testid='mode-bubble']").click();
+
+  const existing = page.locator("[data-testid='bubble-existing']");
+  await existing.click();
+  await existing.locator("[data-field='size']").dblclick();
+  await page.locator("[data-testid='bubble-edit-size']").fill("25");
+  await page.locator("[data-testid='bubble-edit-size']").press("Enter");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().bubbles.find((bubble) => bubble.id === "existing").size)).toEqual({ value: 25, unit: "m²" });
+
+  const unspecified = page.locator("[data-testid='bubble-unspecified']");
+  await unspecified.click();
+  await unspecified.locator("[data-field='size']").dblclick();
+  await page.locator("[data-testid='bubble-edit-size']").fill("25");
+  await page.locator("[data-testid='bubble-edit-size']").press("Enter");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().bubbles.find((bubble) => bubble.id === "unspecified").size)).toEqual({ value: 25, unit: "sqm" });
+
+  await unspecified.locator("[data-field='size']").dblclick();
+  await page.locator("[data-testid='bubble-edit-size']").fill("");
+  await page.locator("[data-testid='bubble-edit-size']").press("Enter");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().bubbles.find((bubble) => bubble.id === "unspecified").size)).toBeNull();
+});
+
 test("Bubble keyboard actions do not mutate hidden Block Plan selections", async ({ page }) => {
   await page.goto(appUrl);
   await page.evaluate(() => {
