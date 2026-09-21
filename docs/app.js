@@ -58,6 +58,11 @@ let underlayOpacityUndoArmed = false;
 let underlayEditMode = null;
 let underlayMoveDraft = null;
 let underlayScalePoints = [];
+let editorMode = "block";
+
+function isBubbleEditorMode() {
+  return editorMode === "bubble";
+}
 
 const view = {
   zoom: 1,
@@ -276,6 +281,9 @@ function bindEvents() {
 
   window.addEventListener("keydown", (event) => {
     if (isEditingText()) {
+      return;
+    }
+    if (isBubbleEditorMode()) {
       return;
     }
     if (event.code === "Space") {

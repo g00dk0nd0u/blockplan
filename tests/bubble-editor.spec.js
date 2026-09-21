@@ -177,3 +177,112 @@ test("normal JSON Load restores the visible Bubble Diagram", async ({ page }) =>
   await expect(hall).toHaveCSS("top", "360px");
   await expect(page.locator("[data-testid='connector-bedroom-hall']")).toHaveCount(1);
 });
+
+test("Bubble keyboard actions do not mutate hidden Block Plan selections", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => {
+    localStorage.clear();
+    window.BlockPlanAPI.paintRect({ x: 0, y: 0, width: 2, height: 2, categoryId: "office", zoneId: "zone-a" });
+    window.BlockPlanAPI.paintRect({ x: 4, y: 0, width: 2, height: 2, categoryId: "office", zoneId: "zone-b" });
+  });
+  const view = await page.evaluate(() => window.BlockPlanAPI.fitToView());
+  const canvas = await page.locator("[data-testid='planning-canvas']").boundingBox();
+  const cellPoint = (x, y) => ({
+    x: canvas.x + view.panX + (x + 0.5) * 36 * view.zoom,
+    y: canvas.y + view.panY + (y + 0.5) * 36 * view.zoom
+  });
+  const firstZone = cellPoint(0, 0);
+  const secondZone = cellPoint(4, 0);
+  await page.mouse.click(firstZone.x, firstZone.y);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(secondZone.x, secondZone.y);
+  await page.keyboard.up("Shift");
+
+  await page.locator("[data-testid='mode-bubble']").click();
+  const workspace = page.locator("[data-testid='bubble-workspace']");
+  const bounds = await workspace.boundingBox();
+  await page.mouse.dblclick(bounds.x + 350, bounds.y + 260);
+  await page.locator("[data-testid='bubble-edit-name']").fill("Temporary");
+  await page.locator("[data-testid='bubble-edit-name']").press("Enter");
+  await page.keyboard.press("Delete");
+
+  await expect(page.locator(".bubble-node")).toHaveCount(0);
+  const zones = await page.evaluate(() => window.BlockPlanAPI.getZones());
+  expect(zones.map((zone) => [zone.zoneId, zone.cellKeys.length])).toEqual([["zone-a", 4], ["zone-b", 4]]);
+});
+
+test("Bubble mutations use the shared chronological Undo stack", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => {
+    localStorage.clear();
+    window.BlockPlanAPI.paintRect({ x: 0, y: 0, width: 2, height: 2, categoryId: "office", zoneId: "kept-zone" });
+  });
+  await page.locator("[data-testid='mode-bubble']").click();
+  const workspace = page.locator("[data-testid='bubble-workspace']");
+  const bounds = await workspace.boundingBox();
+
+  await page.mouse.dblclick(bounds.x + 300, bounds.y + 260);
+  await page.locator("[data-testid='bubble-edit-name']").press("Escape");
+  await expect(page.locator(".bubble-node")).toHaveCount(1);
+  await page.keyboard.press("Control+z");
+  await expect(page.locator(".bubble-node")).toHaveCount(0);
+  expect((await page.evaluate(() => window.BlockPlanAPI.getZones()))[0].cellKeys).toHaveLength(4);
+
+  await page.mouse.dblclick(bounds.x + 300, bounds.y + 260);
+  await page.locator("[data-testid='bubble-edit-name']").press("Escape");
+  const bubble = page.locator(".bubble-node").first();
+  await bubble.locator("[data-field='name']").dblclick();
+  await page.locator("[data-testid='bubble-edit-name']").fill("Bedroom");
+  await page.locator("[data-testid='bubble-edit-name']").press("Enter");
+  await expect(bubble).toContainText("Bedroom");
+  await page.keyboard.press("Control+z");
+  await expect(bubble).toContainText("New Space");
+
+  await bubble.locator("[data-field='size']").dblclick();
+  await page.locator("[data-testid='bubble-edit-size']").fill("24");
+  await page.locator("[data-testid='bubble-edit-size']").press("Enter");
+  await page.keyboard.press("Control+z");
+  await expect(bubble).toContainText("10㎡");
+  await bubble.locator("[data-field='quantity']").dblclick();
+  await page.locator("[data-testid='bubble-edit-quantity']").fill("5");
+  await page.locator("[data-testid='bubble-edit-quantity']").press("Enter");
+  await page.keyboard.press("Control+z");
+  await expect(bubble).toContainText("×1");
+
+  await page.evaluate(() => window.BlockPlanAPI.addBubble({
+    id: "second", name: "Hall", type: "space", size: { value: 10, unit: "sqm" }, quantity: 1, position: { x: 650, y: 360 }, metadata: {}
+  }));
+  await bubble.click();
+  const portBox = await bubble.locator("[data-testid='bubble-port-right']").boundingBox();
+  const secondBox = await page.locator("[data-testid='bubble-second']").boundingBox();
+  await page.mouse.move(portBox.x + portBox.width / 2, portBox.y + portBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(secondBox.x + secondBox.width / 2, secondBox.y + secondBox.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.locator(".bubble-wire-hit")).toHaveCount(1);
+  await page.keyboard.press("Control+z");
+  await expect(page.locator(".bubble-wire-hit")).toHaveCount(0);
+  expect((await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram())).connectors).toEqual([]);
+
+  await page.evaluate(() => window.BlockPlanAPI.connectBubbles({ fromBubbleId: "bubble-1", toBubbleId: "second", relationType: "near", priority: "preferred" }));
+  const initialPosition = await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().bubbles.find((item) => item.id === "second").position);
+  const initialPath = await page.locator(".bubble-wire-hit").getAttribute("d");
+  const dragBox = await page.locator("[data-testid='bubble-second']").boundingBox();
+  await page.mouse.move(dragBox.x + dragBox.width / 2, dragBox.y + dragBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(dragBox.x + 100, dragBox.y - 60, { steps: 6 });
+  await page.mouse.up();
+  expect(await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().bubbles.find((item) => item.id === "second").position)).not.toEqual(initialPosition);
+  await page.keyboard.press("Control+z");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().bubbles.find((item) => item.id === "second").position)).toEqual(initialPosition);
+  await expect(page.locator(".bubble-wire-hit")).toHaveAttribute("d", initialPath);
+
+  await page.locator("[data-testid='mode-block']").click();
+  await page.evaluate(() => {
+    window.pushUndoState();
+    window.BlockPlanAPI.paintRect({ x: 5, y: 5, width: 1, height: 1, categoryId: "office", zoneId: "undo-zone" });
+  });
+  await page.keyboard.press("Control+z");
+  expect((await page.evaluate(() => window.BlockPlanAPI.getZones())).some((zone) => zone.zoneId === "undo-zone")).toBe(false);
+  expect((await page.evaluate(() => window.BlockPlanAPI.getZones())).some((zone) => zone.zoneId === "kept-zone")).toBe(true);
+});

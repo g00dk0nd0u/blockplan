@@ -35,6 +35,7 @@
 
   function commitDiagram(candidate, status) {
     requireValidBubbleDiagram(candidate);
+    if (typeof pushUndoState === "function") pushUndoState();
     plan.bubbleDiagram = candidate;
     persistPlan();
     showSaveStatus(status);
@@ -179,7 +180,7 @@
     selectedBubbleId = bubble.id;
     selectedConnectorId = null;
     const point = worldPoint(event.clientX, event.clientY);
-    pointerAction = { kind: "bubble", id: bubble.id, offsetX: point.x - bubble.position.x, offsetY: point.y - bubble.position.y, moved: false };
+    pointerAction = { kind: "bubble", id: bubble.id, offsetX: point.x - bubble.position.x, offsetY: point.y - bubble.position.y, moved: false, undoCaptured: false };
     if (changedSelection) render();
   }
 
@@ -196,7 +197,13 @@
       const bubble = plan.bubbleDiagram.bubbles.find((item) => item.id === pointerAction.id);
       if (!bubble) return;
       const point = worldPoint(event.clientX, event.clientY);
-      bubble.position = { x: point.x - pointerAction.offsetX, y: point.y - pointerAction.offsetY };
+      const position = { x: point.x - pointerAction.offsetX, y: point.y - pointerAction.offsetY };
+      if (position.x === bubble.position.x && position.y === bubble.position.y) return;
+      if (!pointerAction.undoCaptured && typeof pushUndoState === "function") {
+        pushUndoState();
+        pointerAction.undoCaptured = true;
+      }
+      bubble.position = position;
       pointerAction.moved = true;
     } else if (pointerAction.kind === "connect") {
       pointerAction.point = worldPoint(event.clientX, event.clientY);
@@ -241,8 +248,10 @@
     value.replaceWith(input);
     input.focus();
     input.select();
+    let finished = false;
     const finish = (commit) => {
-      if (!input.isConnected) return;
+      if (finished || !input.isConnected) return;
+      finished = true;
       if (commit) {
         const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
         const edited = candidate.bubbles.find((item) => item.id === id);
@@ -303,6 +312,7 @@
 
   function setMode(nextMode) {
     mode = nextMode;
+    editorMode = nextMode;
     const bubbleMode = mode === "bubble";
     document.body.classList.toggle("bubble-mode", bubbleMode);
     workspace.hidden = !bubbleMode;
@@ -310,7 +320,10 @@
     document.getElementById("blockModeButton").classList.toggle("is-active", !bubbleMode);
     document.getElementById("bubbleModeButton").setAttribute("aria-pressed", String(bubbleMode));
     document.getElementById("blockModeButton").setAttribute("aria-pressed", String(!bubbleMode));
-    if (bubbleMode) render();
+    if (bubbleMode) {
+      if (typeof window.clearBlockPlanInteractionState === "function") window.clearBlockPlanInteractionState();
+      render();
+    }
     else { selectedBubbleId = null; closePopover(); resizeCanvas(); draw(); }
   }
 
@@ -355,6 +368,11 @@
   window.addEventListener("resize", () => { if (mode === "bubble") render(); });
   window.addEventListener("click", (event) => { if (!popover.hidden && !event.target.closest(".connector-popover") && !event.target.closest(".bubble-wire-hit")) closePopover(); });
 
-  window.refreshBubbleEditor = render;
+  window.refreshBubbleEditor = function refreshBubbleEditor() {
+    if (selectedBubbleId && !plan.bubbleDiagram.bubbles.some((bubble) => bubble.id === selectedBubbleId)) selectedBubbleId = null;
+    if (selectedConnectorId && !plan.bubbleDiagram.connectors.some((connector) => connector.id === selectedConnectorId)) selectedConnectorId = null;
+    closePopover();
+    render();
+  };
   window.setBlockPlanEditorMode = setMode;
 })();
