@@ -18,6 +18,10 @@
 - `plan.generation.requirementsSnapshots` and `plan.generation.variants` are immutable candidate records; manual edits must not mutate them.
 - Variants contain only isolated BlockPlan data, never a recursive complete Plan, and Zone-to-Bubble mapping is explicit in `zoneAssignments`.
 - Validation results are derived on demand and must not be persisted in Variants.
+- A Review does not automatically become Design Memory; candidate creation is explicit and candidate content is supplied by a human or external agent.
+- Approved and rejected Memory items are immutable historical records, and only approved Memory is used in generation context.
+- Every Memory item remains evidence-linked to existing Review IDs.
+- Relevant Memory retrieval is deterministic and condition-based, never embedding-based.
 
 ## Hidden Browser API
 
