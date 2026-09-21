@@ -183,6 +183,7 @@ function installPatchKeyboardShortcuts() {
     "keydown",
     (event) => {
       if (isEditingText()) return;
+      if (isBubbleEditorMode()) return;
 
       if (event.key === "Escape") {
         patchPaintDraft = null;
@@ -238,6 +239,8 @@ function installUndoCaptureHandlers() {
         undoLastAction();
         return;
       }
+
+      if (isBubbleEditorMode()) return;
 
       if ((event.key === "Delete" || event.key === "Backspace") && selectedZoneSignature) {
         pushUndoState();
@@ -319,6 +322,7 @@ function undoLastAction() {
     persistPlan();
     renderCategoryList();
     updateUi();
+    if (typeof window.refreshBubbleEditor === "function") window.refreshBubbleEditor();
     showSaveStatus("Undo");
   } catch (error) {
     console.error("Undo failed", error);
@@ -1485,3 +1489,19 @@ function drawMultiSelectionOverlay(targetCtx) {
 }
 
 window.getCurrentSelectedZoneIds = getCurrentSelectedZoneIds;
+window.clearBlockPlanInteractionState = function clearBlockPlanInteractionState() {
+  selectedZoneSignature = null;
+  transformDraft = null;
+  cutDraft = null;
+  paintStrokeZoneId = null;
+  patchPaintDraft = null;
+  patchSplitDraft = null;
+  patchEraseDraft = null;
+  patchMergeDraft = null;
+  patchRotateDraft = null;
+  patchSelectedZoneIds.clear();
+  isPainting = false;
+  isPanning = false;
+  isSpaceDown = false;
+  draw();
+};
