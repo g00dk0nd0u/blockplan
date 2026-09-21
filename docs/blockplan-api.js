@@ -136,6 +136,7 @@
         const source = typeof planJson === "string" ? JSON.parse(planJson) : planJson;
         const candidate = normalizePlan(source);
         plan = candidate;
+        if (typeof clearUndoHistory === "function") clearUndoHistory();
         activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
         sync("API plan loaded");
         return success({ plan: serializePlanForSave() });

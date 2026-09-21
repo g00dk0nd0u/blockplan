@@ -43,6 +43,16 @@
     }
   } catch (error) {
     plan = normalizePlan(defaultPlan);
+    activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
+    selectedZoneSignature = null;
+    transformDraft = null;
+    paintStrokeZoneId = null;
+    if (typeof patchSelectedZoneIds !== "undefined") patchSelectedZoneIds.clear();
+    renderCategoryList();
+    updateUi();
+    if (typeof window.refreshBubbleEditor === "function") window.refreshBubbleEditor();
+    if (typeof window.refreshReviewDock === "function") window.refreshReviewDock();
+    if (typeof window.refreshMemoryDock === "function") window.refreshMemoryDock();
     showSaveStatus("Saved plan unreadable");
     console.warn("Design Memory restore rejected", error);
   }
@@ -53,20 +63,6 @@
     ["bubbleTypes", "relationTypes", "tags"].forEach((field) => {
       if ((requireAllFields || value[field] !== undefined) && !Array.isArray(value[field])) throw new Error(`applicableConditions.${field} must be an array`);
       if (Array.isArray(value[field]) && value[field].some((entry) => typeof entry !== "string" || !entry.trim())) throw new Error(`applicableConditions.${field} must contain non-empty strings`);
-    });
-  }
-
-  function propagateMemoryIntoUndoHistory() {
-    if (typeof patchUndoStack === "undefined" || !Array.isArray(patchUndoStack)) return;
-    patchUndoStack.forEach((serialized, index) => {
-      try {
-        const snapshot = JSON.parse(serialized);
-        const snapshotPlan = snapshot.plan || snapshot;
-        snapshotPlan.memory = JSON.parse(JSON.stringify(plan.memory));
-        patchUndoStack[index] = JSON.stringify(snapshot);
-      } catch (error) {
-        console.warn("Design Memory undo-history sync failed", error);
-      }
     });
   }
 
@@ -81,7 +77,6 @@
         ? { ...input, memoryId: typeof input.memoryId === "string" ? input.memoryId.trim() : input.memoryId }
         : input;
       const result = basePropose(normalizedInput);
-      if (result && result.ok) propagateMemoryIntoUndoHistory();
       return result;
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -93,21 +88,11 @@
     try {
       if (patch && patch.applicableConditions !== undefined) validateConditionsShape(patch.applicableConditions);
       const result = baseUpdate(memoryId, patch);
-      if (result && result.ok) propagateMemoryIntoUndoHistory();
       return result;
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   };
-
-  ["approveMemory", "rejectMemory"].forEach((method) => {
-    const base = api[method].bind(api);
-    api[method] = function guardedMemoryTransition(...args) {
-      const result = base(...args);
-      if (result && result.ok) propagateMemoryIntoUndoHistory();
-      return result;
-    };
-  });
 
   const baseShowSaveStatus = showSaveStatus;
   showSaveStatus = function showSaveStatusWithMemoryRefresh(message) {

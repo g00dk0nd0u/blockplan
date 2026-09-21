@@ -217,6 +217,13 @@ test("malformed localStorage Memory does not partially restore its Plan", async 
   expect(plan.moduleSizeMm).toBe(3600);
   expect(plan.cells).toEqual({});
   expect(plan.memory).toEqual({ version: 1, items: [] });
+  await expect(page.getByTestId("module-size")).toHaveValue("3600");
+  await expect(page.locator(".category-name")).toHaveText(["Unassigned", "Office", "Meeting", "Core", "Circulation", "MEP"]);
+  await expect(page.locator(".dashboard-table tbody tr").first().locator("td").last()).toHaveText("0");
+  await expect(page.getByTestId("memory-dock")).toBeHidden();
+  await expect(page.getByTestId("review-dock")).toBeHidden();
+  await page.getByTestId("mode-bubble").click();
+  await expect(page.locator(".bubble-node")).toHaveCount(0);
 });
 
 test("retrieval applies all deterministic conditions and returns defensive clones", async ({ page }) => {
@@ -259,23 +266,107 @@ test("retrieval applies all deterministic conditions and returns defensive clone
   expect(result.candidateVisible).toBe(false);
 });
 
-test("Memory decisions survive an unrelated shared Undo", async ({ page }) => {
+test("ordinary Undo preserves generation, Review, and evidence-linked Memory together", async ({ page }) => {
   await page.goto(appUrl);
-  await seedReviewedVariant(page);
   const setup = await page.evaluate(() => {
-    pushUndoState();
-    const proposed = window.BlockPlanAPI.proposeMemoryFromReviews({
-      memoryId: "memory-after-snapshot", scope: "project", type: "observed-pattern",
-      statement: "Preserve across geometry undo", evidenceReviewIds: ["review-evidence"]
+    const api = window.BlockPlanAPI;
+    api.clear();
+    api.setBubbleDiagram({
+      version: 1,
+      bubbles: [{ id: "office", name: "Office", type: "office", size: { value: 20, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 }, metadata: {} }],
+      connectors: []
     });
-    const approved = window.BlockPlanAPI.approveMemory("memory-after-snapshot");
-    window.BlockPlanAPI.paintRect({ x: 9, y: 9, width: 1, height: 1, categoryId: "office", zoneId: "undo-zone" });
-    return { proposed, approved };
+    const snapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    const variant = api.createVariant({
+      variantId: "variant-undo",
+      requirementsSnapshotId: snapshot.requirementsSnapshotId,
+      blockPlan: {
+        moduleSizeMm: 1000,
+        categories: [{ id: "office", name: "Office", color: "#AABB9C" }],
+        cells: { "0,0": { categoryId: "office", zoneId: "zone-office" } },
+        zoneAssignments: { "zone-office": { bubbleId: "office" } }
+      }
+    }).variant;
+    pushUndoState();
+    api.createReview({
+      reviewId: "review-after-snapshot", variantId: variant.variantId, decision: "iterate",
+      good: ["Clear"], problems: [], nextInstructions: ["Keep it"]
+    });
+    const proposed = api.proposeMemoryFromReviews({
+      memoryId: "memory-after-snapshot", scope: "project", type: "observed-pattern",
+      statement: "Preserve across geometry undo", evidenceReviewIds: ["review-after-snapshot"]
+    });
+    const approved = api.approveMemory("memory-after-snapshot");
+    api.paintRect({ x: 9, y: 9, width: 1, height: 1, categoryId: "office", zoneId: "undo-zone" });
+    return { proposed, approved, snapshotId: snapshot.requirementsSnapshotId };
   });
   expect(setup.proposed.ok).toBe(true);
   expect(setup.approved.ok).toBe(true);
   await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
-  expect(await page.evaluate(() => window.BlockPlanAPI.getMemory("memory-after-snapshot").status)).toBe("approved");
+  const afterUndo = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    const memory = api.getMemory("memory-after-snapshot");
+    return {
+      cells: api.getPlan().cells,
+      memory,
+      review: api.getReview(memory.evidenceReviewIds[0]),
+      snapshots: api.listRequirementsSnapshots(),
+      variants: api.listVariants()
+    };
+  });
+  expect(afterUndo.cells["9,9"]).toBeUndefined();
+  expect(afterUndo.memory.status).toBe("approved");
+  expect(afterUndo.review.reviewId).toBe("review-after-snapshot");
+  expect(afterUndo.snapshots.map((item) => item.requirementsSnapshotId)).toEqual([setup.snapshotId]);
+  expect(afterUndo.variants.map((item) => item.variantId)).toEqual(["variant-undo"]);
+});
+
+test("undoing JSON Load restores the previous complete Plan without mixing semantic history", async ({ page }) => {
+  await page.goto(appUrl);
+  await seedReviewedVariant(page);
+  await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.proposeMemoryFromReviews({ memoryId: "memory-a", scope: "project", type: "hard-rule", statement: "Project A", evidenceReviewIds: ["review-evidence"] });
+    api.approveMemory("memory-a");
+  });
+  const projectB = await page.evaluate(() => {
+    const source = window.BlockPlanAPI.getPlan();
+    const snapshot = source.generation.requirementsSnapshots[0];
+    const variant = source.generation.variants[0];
+    const review = source.review.reviews[0];
+    source.cells = { "8,8": { categoryId: "office", zoneId: "project-b-zone" } };
+    snapshot.requirementsSnapshotId = "snapshot-b";
+    variant.variantId = "variant-b";
+    variant.requirementsSnapshotId = "snapshot-b";
+    review.reviewId = "review-b";
+    review.variantId = "variant-b";
+    review.requirementsSnapshotId = "snapshot-b";
+    source.memory.items[0].memoryId = "memory-b";
+    source.memory.items[0].statement = "Project B";
+    source.memory.items[0].evidenceReviewIds = ["review-b"];
+    return source;
+  });
+  await page.getByTestId("load-json-input").setInputFiles({
+    name: "project-b.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(projectB))
+  });
+  expect((await page.evaluate(() => window.BlockPlanAPI.listMemory())).map((item) => item.memoryId)).toEqual(["memory-b"]);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  const restored = await page.evaluate(() => ({
+    plan: window.BlockPlanAPI.getPlan(),
+    memories: window.BlockPlanAPI.listMemory()
+  }));
+  expect(restored.memories.map((item) => item.memoryId)).toEqual(["memory-a"]);
+  expect(restored.plan.review.reviews.map((item) => item.reviewId)).toEqual(["review-evidence"]);
+  expect(restored.plan.generation.variants.map((item) => item.variantId)).toEqual(["variant-reviewed"]);
+  expect(restored.plan.cells["8,8"]).toBeUndefined();
+
+  const replaced = await page.evaluate((nextPlan) => {
+    pushUndoState();
+    return window.BlockPlanAPI.setPlan(nextPlan);
+  }, projectB);
+  expect(replaced.ok).toBe(true);
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  expect((await page.evaluate(() => window.BlockPlanAPI.listMemory())).map((item) => item.memoryId)).toEqual(["memory-b"]);
 });
 
 test("candidate dock rejects a candidate and disappears", async ({ page }) => {
