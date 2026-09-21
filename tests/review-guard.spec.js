@@ -74,14 +74,19 @@ test("Review mode blocks undo and plan-replacing file actions", async ({ page })
   await expect(page.getByTestId("load-json")).toBeEnabled();
 });
 
-test("Review-mode zone clicks do not consume an Undo snapshot", async ({ page }) => {
+test("Review-mode zone clicks do not add a stale Undo step", async ({ page }) => {
   await page.goto(appUrl);
   await seedReviewScenario(page);
 
-  const before = await page.evaluate(() => patchUndoStack.length);
   const canvas = page.getByTestId("planning-canvas");
   const box = await canvas.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
-  const after = await page.evaluate(() => patchUndoStack.length);
-  expect(after).toBe(before);
+
+  await page.getByTestId("review-toggle").click();
+  const undoShortcut = process.platform === "darwin" ? "Meta+z" : "Control+z";
+  await page.keyboard.press(undoShortcut);
+
+  const cells = await page.evaluate(() => window.BlockPlanAPI.getPlan().cells);
+  expect(Object.keys(cells)).toEqual(["7,7"]);
+  expect(cells["7,7"].zoneId).toBe("manual");
 });
