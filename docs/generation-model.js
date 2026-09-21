@@ -69,14 +69,21 @@
     categories.forEach((category) => {
       if (!category || typeof category.id !== "string" || !category.id.trim()) throw new Error("Every Variant category must have an id");
       if (categoryIds.has(category.id)) throw new Error(`Duplicate Variant category id: ${category.id}`);
+      if (typeof category.name !== "string" || !category.name.trim()) throw new Error(`Variant category ${category.id} must have a name`);
+      if (typeof category.color !== "string" || !/^#[0-9a-f]{6}$/i.test(category.color)) throw new Error(`Variant category ${category.id} must have a #RRGGBB color`);
       categoryIds.add(category.id);
     });
     if (!input.cells || typeof input.cells !== "object" || Array.isArray(input.cells)) throw new Error("blockPlan.cells must be an object");
     const cells = clone(input.cells);
+    const zoneCategoryIds = new Map();
     Object.entries(cells).forEach(([key, cell]) => {
       if (!/^-?\d+,-?\d+$/.test(key)) throw new Error(`Invalid cell key: ${key}`);
       if (!cell || !categoryIds.has(cell.categoryId)) throw new Error(`Cell ${key} has unknown categoryId`);
       if (typeof cell.zoneId !== "string" || !cell.zoneId.trim()) throw new Error(`Cell ${key} must have a zoneId`);
+      if (zoneCategoryIds.has(cell.zoneId) && zoneCategoryIds.get(cell.zoneId) !== cell.categoryId) {
+        throw new Error(`Zone ${cell.zoneId} spans multiple categories`);
+      }
+      zoneCategoryIds.set(cell.zoneId, cell.categoryId);
     });
     if (input.zoneAssignments !== undefined && (!input.zoneAssignments || typeof input.zoneAssignments !== "object" || Array.isArray(input.zoneAssignments))) {
       throw new Error("blockPlan.zoneAssignments must be an object");

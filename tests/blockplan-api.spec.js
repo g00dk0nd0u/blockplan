@@ -267,14 +267,53 @@ test("setPlan rejects malformed persisted generation atomically", async ({ page 
       { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, requirementsSnapshotId: "missing" }] },
       { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, parentVariantId: "missing" }] },
       { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, cells: { "0,0": { categoryId: "missing", zoneId: "z" } } } }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, categories: [{ id: "x", name: "", color: "#111111" }] } }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, categories: [{ id: "x", name: "X" }] } }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, categories: [{ id: "x", name: "X", color: "red" }] } }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, categories: [{ id: "x", name: "X", color: "#111111" }, { id: "y", name: "Y", color: "#222222" }], cells: { "0,0": { categoryId: "x", zoneId: "z" }, "1,0": { categoryId: "y", zoneId: "z" } } } }] },
       { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, zoneAssignments: { missing: { bubbleId: "a" } } } }] },
       { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, zoneAssignments: { z: { bubbleId: "missing" } } } }] }
     ];
     const rejected = cases.map(attempt);
     return { rejected, before, after: api.getPlan() };
   });
-  expect(results.rejected).toHaveLength(7);
+  expect(results.rejected).toHaveLength(11);
   results.rejected.forEach((result) => expect(result.ok).toBe(false));
+  expect(results.after).toEqual(results.before);
+});
+
+test("createVariant rejects malformed categories and mixed-category zones atomically", async ({ page }) => {
+  await page.goto(appUrl);
+  const results = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.clear();
+    api.paintRect({ x: 3, y: 3, width: 1, height: 1, categoryId: "office", zoneId: "working" });
+    api.setBubbleDiagram({ version: 1, bubbles: [
+      { id: "a", name: "A", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } }
+    ], connectors: [] });
+    const snapshotId = api.createRequirementsSnapshot().requirementsSnapshot.requirementsSnapshotId;
+    const before = api.getPlan();
+    const base = {
+      moduleSizeMm: 1000,
+      categories: [{ id: "x", name: "X", color: "#111111" }],
+      cells: { "0,0": { categoryId: "x", zoneId: "z" } },
+      zoneAssignments: { z: { bubbleId: "a" } }
+    };
+    const create = (variantId, blockPlan) => api.createVariant({ variantId, requirementsSnapshotId: snapshotId, blockPlan });
+    const rejected = [
+      create("empty-name", { ...base, categories: [{ id: "x", name: "", color: "#111111" }] }),
+      create("missing-color", { ...base, categories: [{ id: "x", name: "X" }] }),
+      create("invalid-color", { ...base, categories: [{ id: "x", name: "X", color: "rgb(1, 2, 3)" }] }),
+      create("mixed-zone", {
+        ...base,
+        categories: [...base.categories, { id: "y", name: "Y", color: "#222222" }],
+        cells: { "0,0": { categoryId: "x", zoneId: "z" }, "1,0": { categoryId: "y", zoneId: "z" } }
+      })
+    ];
+    return { rejected, before, after: api.getPlan(), variants: api.listVariants() };
+  });
+  results.rejected.forEach((result) => expect(result.ok).toBe(false));
+  expect(results.variants).toEqual([]);
   expect(results.after).toEqual(results.before);
 });
 
