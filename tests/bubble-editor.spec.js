@@ -83,6 +83,9 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
   const connectorPoint = await connectorScreenPoint(connector);
   await page.mouse.click(connectorPoint.x, connectorPoint.y);
   await expect(page.locator("[data-testid='connector-popover']")).toBeVisible();
+  await expect(page.locator(".bubble-wire.is-selected")).toHaveCount(1);
+  await expect(page.locator(".bubble-port")).toHaveCount(0);
+  await expect(page.locator(".bubble-node.is-selected")).toHaveCount(0);
   await page.locator("[data-testid='connector-relation']").selectOption("separate");
   await expect(page.locator("[data-testid='connector-popover']")).toBeVisible();
   await page.locator("[data-testid='connector-priority']").selectOption("required");
@@ -222,7 +225,7 @@ test("Bubble mutations use the shared chronological Undo stack", async ({ page }
   const bounds = await workspace.boundingBox();
 
   await page.mouse.dblclick(bounds.x + 300, bounds.y + 260);
-  await page.locator("[data-testid='bubble-edit-name']").press("Escape");
+  await page.locator("[data-testid='bubble-edit-name']").press("Enter");
   await expect(page.locator(".bubble-node")).toHaveCount(1);
   await page.keyboard.press("Control+z");
   await expect(page.locator(".bubble-node")).toHaveCount(0);

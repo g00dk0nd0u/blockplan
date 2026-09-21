@@ -255,9 +255,15 @@
       if (commit) {
         const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
         const edited = candidate.bubbles.find((item) => item.id === id);
-        if (field === "name") edited.name = input.value.trim();
-        else if (field === "size") edited.size.value = Number(input.value);
-        else edited.quantity = Number(input.value);
+        const currentValue = field === "name" ? edited.name : field === "size" ? edited.size.value : edited.quantity;
+        const nextValue = field === "name" ? input.value.trim() : Number(input.value);
+        if (Object.is(nextValue, currentValue)) {
+          render();
+          return;
+        }
+        if (field === "name") edited.name = nextValue;
+        else if (field === "size") edited.size.value = nextValue;
+        else edited.quantity = nextValue;
         try { commitDiagram(candidate, "Bubble updated"); } catch (error) { render(); showSaveStatus("Invalid Bubble value"); }
       } else render();
     };
@@ -296,7 +302,7 @@
       commitDiagram(candidate, "Connector removed");
       closePopover();
     });
-    renderConnectors();
+    render();
   }
 
   function closePopover() { popover.hidden = true; }
