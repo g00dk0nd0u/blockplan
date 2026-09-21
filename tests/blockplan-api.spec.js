@@ -121,6 +121,11 @@ test("Review history is append-only, validated, cloned, persisted, and exposed a
     accepted.review.good.push("leak");
     const iterated = api.createReview({ reviewId: "review-b", variantId: "child", decision: "iterate", nextInstructions: ["widen hall"], preferredOverVariantId: "peer", createdAt: "2026-01-02T00:00:00.000Z" });
     const rejected = api.createReview({ reviewId: "review-c", variantId: "child", decision: "reject", problems: ["blocked entry"], createdAt: "2026-01-03T00:00:00.000Z" });
+    api.proposeMemoryFromReviews({ memoryId: "memory-approved", scope: "project", type: "soft-preference", statement: "Approved context memory", evidenceReviewIds: ["review-a"] });
+    api.approveMemory("memory-approved");
+    api.proposeMemoryFromReviews({ memoryId: "memory-candidate", scope: "project", type: "observed-pattern", statement: "Candidate context memory", evidenceReviewIds: ["review-b"] });
+    api.proposeMemoryFromReviews({ memoryId: "memory-rejected", scope: "project", type: "rejected-pattern", statement: "Rejected context memory", evidenceReviewIds: ["review-c"] });
+    api.rejectMemory("memory-rejected");
     const invalidVariant = api.createReview({ variantId: "missing", decision: "accept" });
     const invalidPreference = api.createReview({ variantId: "child", decision: "accept", preferredOverVariantId: "unrelated" });
     const duplicateReview = api.createReview({ reviewId: "review-a", variantId: "child", decision: "accept" });
@@ -128,10 +133,17 @@ test("Review history is append-only, validated, cloned, persisted, and exposed a
     listed[0].good.push("list leak");
     const context = api.getIterationContext("child");
     context.variant.blockPlan.cells["0,0"].zoneId = "context leak";
+    context.relevantMemory[0].statement = "iteration context leak";
+    const generationContext = api.getGenerationContext(firstSnapshot.requirementsSnapshotId);
+    generationContext.relevantMemory[0].statement = "generation context leak";
     return {
       accepted, iterated, rejected, invalidVariant, invalidPreference, duplicateReview,
       stored: api.getReview("review-a"), reviews: api.listReviews(), childReviews: api.getVariantReviews("child"),
-      context, freshVariant: api.getVariant("child"), deleteReviewed: api.deleteVariant("child"), deletePreferred: api.deleteVariant("peer"), plan: api.getPlan()
+      context, generationContext,
+      freshGenerationMemory: api.getGenerationContext(firstSnapshot.requirementsSnapshotId).relevantMemory,
+      freshIterationMemory: api.getIterationContext("child").relevantMemory,
+      storedMemory: api.getMemory("memory-approved"),
+      freshVariant: api.getVariant("child"), deleteReviewed: api.deleteVariant("child"), deletePreferred: api.deleteVariant("peer"), plan: api.getPlan()
     };
   });
   expect(result.accepted.review).toMatchObject({ reviewId: "review-a", variantId: "root", requirementsSnapshotId: "requirements-1", decision: "accept", problems: ["tight"], nextInstructions: [], preferredOverVariantId: null });
@@ -151,6 +163,11 @@ test("Review history is append-only, validated, cloned, persisted, and exposed a
   expect(result.context.validation).toHaveProperty("metrics");
   expect(result.context.nextChildDefaults).toEqual({ parentVariantId: "child", requirementsSnapshotId: "requirements-1" });
   expect(result.context.reviews[0]).not.toHaveProperty("validation");
+  expect(result.generationContext.relevantMemory.map((memory) => memory.memoryId)).toEqual(["memory-approved"]);
+  expect(result.context.relevantMemory.map((memory) => memory.memoryId)).toEqual(["memory-approved"]);
+  expect(result.freshGenerationMemory).toEqual([expect.objectContaining({ memoryId: "memory-approved", statement: "Approved context memory" })]);
+  expect(result.freshIterationMemory).toEqual([expect.objectContaining({ memoryId: "memory-approved", statement: "Approved context memory" })]);
+  expect(result.storedMemory.statement).toBe("Approved context memory");
   expect(result.freshVariant.blockPlan.cells["0,0"].zoneId).toBe("child-zone");
   expect(result.plan.review.reviews).toHaveLength(3);
 

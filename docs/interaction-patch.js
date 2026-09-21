@@ -276,10 +276,11 @@ function installUndoCaptureHandlers() {
   }
 }
 
-function pushUndoState() {
+function pushUndoState(options = {}) {
   try {
     patchUndoStack.push(JSON.stringify({
       plan,
+      fullPlanReplacement: options.fullPlanReplacement === true,
       activeCategoryId,
       selectedZoneSignature,
       underlaySessionKey: typeof underlaySessionKey === "number" ? underlaySessionKey : 0
@@ -302,7 +303,17 @@ function undoLastAction() {
   try {
     const previous = JSON.parse(patchUndoStack.pop());
     const snapshotPlan = previous.plan || previous;
+    const currentSemanticHistory = {
+      generation: plan.generation,
+      review: plan.review,
+      memory: plan.memory
+    };
     plan = clonePlan(snapshotPlan);
+    if (!previous.fullPlanReplacement) {
+      plan.generation = GenerationModel.clone(currentSemanticHistory.generation);
+      plan.review = ReviewModel.clone(currentSemanticHistory.review);
+      if (currentSemanticHistory.memory !== undefined) plan.memory = MemoryModel.clone(currentSemanticHistory.memory);
+    }
     if (plan.underlay && previous.underlaySessionKey !== underlaySessionKey) {
       plan.underlay.needsRelink = true;
     }
@@ -323,11 +334,17 @@ function undoLastAction() {
     renderCategoryList();
     updateUi();
     if (typeof window.refreshBubbleEditor === "function") window.refreshBubbleEditor();
+    if (typeof window.refreshReviewDock === "function") window.refreshReviewDock();
+    if (typeof window.refreshMemoryDock === "function") window.refreshMemoryDock();
     showSaveStatus("Undo");
   } catch (error) {
     console.error("Undo failed", error);
     showSaveStatus("Undo failed");
   }
+}
+
+function clearUndoHistory() {
+  patchUndoStack.length = 0;
 }
 
 function installBetterZoneLabelAnchor() {
