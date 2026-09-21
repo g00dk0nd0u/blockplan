@@ -25,6 +25,15 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
   await expect(page.locator("[data-testid='tool-select']")).toBeHidden();
   await expect(page.locator("[data-testid='export-png']")).toBeHidden();
 
+  const addButton = page.locator("[data-testid='add-bubble']");
+  const addTooltip = page.locator("[role='tooltip']");
+  await addButton.hover();
+  await expect(addTooltip).toHaveText("Add Bubble · Double-click canvas");
+  await expect(addTooltip).toHaveCSS("opacity", "1");
+  await page.mouse.move(20, 20);
+  await addButton.focus();
+  await expect(addTooltip).toHaveCSS("opacity", "1");
+
   const bounds = await workspace.boundingBox();
   await page.mouse.dblclick(bounds.x + 310, bounds.y + 280);
   const nameInput = page.locator("[data-testid='bubble-edit-name']");
@@ -33,8 +42,10 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
   await nameInput.press("Enter");
 
   const first = page.locator(".bubble-node").filter({ hasText: "Bedroom" });
-  await expect(first).toContainText("10㎡");
-  await expect(first).toContainText("×1");
+  await expect(first).not.toContainText("10㎡");
+  await expect(first).not.toContainText("×1");
+  await expect(first.locator("[data-field='size']")).toHaveText("+ Area");
+  await expect(first.locator("[data-field='quantity']")).toHaveText("+ Qty");
   await first.locator("[data-field='size']").dblclick();
   await page.locator("[data-testid='bubble-edit-size']").fill("12");
   await page.locator("[data-testid='bubble-edit-size']").press("Enter");
@@ -44,11 +55,24 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
   await expect(first).toContainText("Bedroom");
   await expect(first).toContainText("12㎡");
   await expect(first).toContainText("×7");
+  await first.locator("[data-field='size']").dblclick();
+  await page.locator("[data-testid='bubble-edit-size']").fill("");
+  await page.locator("[data-testid='bubble-edit-size']").press("Enter");
+  await first.locator("[data-field='quantity']").dblclick();
+  await page.locator("[data-testid='bubble-edit-quantity']").fill("");
+  await page.locator("[data-testid='bubble-edit-quantity']").press("Enter");
+  await expect(first.locator("[data-field='quantity']")).toHaveText("+ Qty");
+  await first.locator("[data-field='quantity']").dblclick();
+  await page.locator("[data-testid='bubble-edit-quantity']").fill("1");
+  await page.locator("[data-testid='bubble-edit-quantity']").press("Enter");
+  await expect(first).not.toContainText("12㎡");
+  await expect(first).toContainText("×1");
 
   await page.mouse.dblclick(bounds.x + 740, bounds.y + 390);
   await page.locator("[data-testid='bubble-edit-name']").fill("Hall");
   await page.locator("[data-testid='bubble-edit-name']").press("Enter");
   const second = page.locator(".bubble-node").filter({ hasText: "Hall" });
+  await expect(first.locator("[data-field='size']")).toHaveCount(0);
 
   await first.click();
   const port = first.locator("[data-testid='bubble-port-right']");
@@ -61,6 +85,8 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
 
   const connector = page.locator(".bubble-wire-hit");
   await expect(connector).toHaveCount(1);
+  expect(await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram().connectors[0])).toMatchObject({ relationType: "adjacent", priority: "preferred" });
+  await page.evaluate(() => window.BlockPlanAPI.updateConnector({ id: "connector-1", priority: "required" }));
   const beforePath = await connector.getAttribute("d");
   const idsBefore = await page.evaluate(() => {
     const value = window.BlockPlanAPI.getBubbleDiagram().connectors[0];
@@ -83,12 +109,11 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
   const connectorPoint = await connectorScreenPoint(connector);
   await page.mouse.click(connectorPoint.x, connectorPoint.y);
   await expect(page.locator("[data-testid='connector-popover']")).toBeVisible();
+  await expect(page.locator("[data-testid='connector-priority']")).toHaveCount(0);
   await expect(page.locator(".bubble-wire.is-selected")).toHaveCount(1);
   await expect(page.locator(".bubble-port")).toHaveCount(0);
   await expect(page.locator(".bubble-node.is-selected")).toHaveCount(0);
   await page.locator("[data-testid='connector-relation']").selectOption("separate");
-  await expect(page.locator("[data-testid='connector-popover']")).toBeVisible();
-  await page.locator("[data-testid='connector-priority']").selectOption("required");
   await expect(page.locator("[data-testid='connector-popover']")).toBeVisible();
   await expect(page.locator(".bubble-wire.relation-separate.priority-required")).toHaveCount(1);
 
@@ -245,12 +270,12 @@ test("Bubble mutations use the shared chronological Undo stack", async ({ page }
   await page.locator("[data-testid='bubble-edit-size']").fill("24");
   await page.locator("[data-testid='bubble-edit-size']").press("Enter");
   await page.keyboard.press("Control+z");
-  await expect(bubble).toContainText("10㎡");
+  await expect(bubble.locator("[data-field='size']")).toHaveText("+ Area");
   await bubble.locator("[data-field='quantity']").dblclick();
   await page.locator("[data-testid='bubble-edit-quantity']").fill("5");
   await page.locator("[data-testid='bubble-edit-quantity']").press("Enter");
   await page.keyboard.press("Control+z");
-  await expect(bubble).toContainText("×1");
+  await expect(bubble.locator("[data-field='quantity']")).toHaveText("+ Qty");
 
   await page.evaluate(() => window.BlockPlanAPI.addBubble({
     id: "second", name: "Hall", type: "space", size: { value: 10, unit: "sqm" }, quantity: 1, position: { x: 650, y: 360 }, metadata: {}

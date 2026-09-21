@@ -173,6 +173,8 @@ body.bubble-mode #linkUnderlayButton { display: none; }
 .bubble-port[data-side="bottom"] { bottom: -5px; left: 50%; transform: translateX(-50%); }
 .bubble-port[data-side="left"] { left: -5px; top: 50%; transform: translateY(-50%); }
 .add-bubble-button { background: var(--panel); border-radius: 50%; bottom: 18px; box-shadow: var(--shadow); font-size: 20px; height: 38px; padding: 0; position: absolute; right: 18px; width: 38px; }
+.add-bubble-button [role="tooltip"] { background: #252525; border-radius: 5px; bottom: calc(100% + 9px); color: #fff; font-size: 11px; opacity: 0; padding: 6px 8px; pointer-events: none; position: absolute; right: 0; transform: translateY(3px); transition: opacity .14s ease, transform .14s ease; white-space: nowrap; }
+.add-bubble-button:hover [role="tooltip"], .add-bubble-button:focus [role="tooltip"] { opacity: 1; transform: translateY(0); }
 .bubble-zoom-status { bottom: 19px; color: var(--muted); font-size: 11px; left: 20px; position: absolute; }
 .connector-popover { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); padding: 10px; position: absolute; width: 190px; z-index: 5; }
 .connector-popover label { color: var(--muted); display: block; font-size: 11px; margin-bottom: 8px; }

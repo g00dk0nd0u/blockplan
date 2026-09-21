@@ -15,7 +15,7 @@
   let spaceDown = false;
 
   function diameter(bubble) {
-    return clamp(72 + Math.sqrt(bubble.size.value) * 8, 86, 190);
+    return bubble.size === null ? 104 : clamp(72 + Math.sqrt(bubble.size.value) * 8, 86, 190);
   }
 
   function worldPoint(clientX, clientY) {
@@ -48,8 +48,8 @@
       id: nextId("bubble", candidate.bubbles),
       name: "New Space",
       type: "space",
-      size: { value: 10, unit: "sqm" },
-      quantity: 1,
+      size: null,
+      quantity: null,
       position: point,
       metadata: {}
     });
@@ -125,11 +125,12 @@
       node.dataset.testid = `bubble-${bubble.id}`;
       const size = diameter(bubble);
       Object.assign(node.style, { left: `${bubble.position.x}px`, top: `${bubble.position.y}px`, width: `${size}px`, height: `${size}px` });
+      const selected = selectedBubbleId === bubble.id;
       const values = [
         ["name", bubble.name, "bubble-name"],
-        ["size", `${bubble.size.value}${displayUnit(bubble.size.unit)}`, "bubble-size"],
-        ["quantity", `×${bubble.quantity}`, "bubble-quantity"]
-      ];
+        ["size", bubble.size === null ? "+ Area" : `${bubble.size.value}${displayUnit(bubble.size.unit)}`, "bubble-size"],
+        ["quantity", bubble.quantity === null ? "+ Qty" : `×${bubble.quantity}`, "bubble-quantity"]
+      ].filter(([field]) => field === "name" || selected || bubble[field] !== null);
       values.forEach(([field, text, className]) => {
         const value = document.createElement("div");
         value.className = `bubble-value ${className}`;
@@ -228,7 +229,7 @@
         id: nextId("connector", candidate.connectors),
         fromBubbleId: action.sourceId,
         toBubbleId: action.targetId,
-        relationType: "near",
+        relationType: "adjacent",
         priority: "preferred",
         direction: null,
         metadata: {}
@@ -244,7 +245,7 @@
     const input = document.createElement("input");
     input.className = "bubble-inline-input";
     input.dataset.testid = `bubble-edit-${field}`;
-    input.value = field === "name" ? bubble.name : field === "size" ? bubble.size.value : bubble.quantity;
+    input.value = field === "name" ? bubble.name : field === "size" ? bubble.size && bubble.size.value : bubble.quantity;
     value.replaceWith(input);
     input.focus();
     input.select();
@@ -255,14 +256,15 @@
       if (commit) {
         const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
         const edited = candidate.bubbles.find((item) => item.id === id);
-        const currentValue = field === "name" ? edited.name : field === "size" ? edited.size.value : edited.quantity;
-        const nextValue = field === "name" ? input.value.trim() : Number(input.value);
+        const currentValue = field === "name" ? edited.name : field === "size" ? edited.size && edited.size.value : edited.quantity;
+        const trimmed = input.value.trim();
+        const nextValue = field === "name" ? trimmed : trimmed === "" ? null : Number(trimmed);
         if (Object.is(nextValue, currentValue)) {
           render();
           return;
         }
         if (field === "name") edited.name = nextValue;
-        else if (field === "size") edited.size.value = nextValue;
+        else if (field === "size") edited.size = nextValue === null ? null : { value: nextValue, unit: "sqm" };
         else edited.quantity = nextValue;
         try { commitDiagram(candidate, "Bubble updated"); } catch (error) { render(); showSaveStatus("Invalid Bubble value"); }
       } else render();
@@ -281,9 +283,8 @@
     selectedBubbleId = null;
     const connector = plan.bubbleDiagram.connectors.find((item) => item.id === id);
     if (!connector) return;
-    popover.innerHTML = `<label>Relation<select data-testid="connector-relation"><option value="adjacent">Adjacent</option><option value="near">Near</option><option value="separate">Separate</option></select></label><label>Priority<select data-testid="connector-priority"><option value="required">Required</option><option value="preferred">Preferred</option><option value="optional">Optional</option></select></label><button type="button" class="delete-connector" data-testid="delete-connector">Delete Connector</button>`;
+    popover.innerHTML = `<label>Relation<select data-testid="connector-relation"><option value="adjacent">Adjacent</option><option value="near">Near</option><option value="separate">Separate</option></select></label><button type="button" class="delete-connector" data-testid="delete-connector">Delete Connector</button>`;
     popover.querySelector("[data-testid='connector-relation']").value = connector.relationType;
-    popover.querySelector("[data-testid='connector-priority']").value = connector.priority;
     const rect = workspace.getBoundingClientRect();
     popover.style.left = `${Math.min(rect.width - 205, Math.max(10, event.clientX - rect.left + 8))}px`;
     popover.style.top = `${Math.min(rect.height - 175, Math.max(10, event.clientY - rect.top + 8))}px`;
@@ -292,7 +293,6 @@
       const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
       const edited = candidate.connectors.find((item) => item.id === id);
       edited.relationType = popover.querySelector("[data-testid='connector-relation']").value;
-      edited.priority = popover.querySelector("[data-testid='connector-priority']").value;
       commitDiagram(candidate, "Connector updated");
     }));
     popover.querySelector(".delete-connector").addEventListener("click", () => {
