@@ -94,6 +94,48 @@
     return `${prefix}-${number}`;
   }
 
+  function nextGenerationId(prefix, items, field) {
+    const ids = new Set(items.map((item) => item[field]));
+    let number = 1;
+    while (ids.has(`${prefix}-${number}`)) number += 1;
+    return `${prefix}-${number}`;
+  }
+
+  function findSnapshot(id) {
+    const snapshot = plan.generation.requirementsSnapshots.find((item) => item.requirementsSnapshotId === id);
+    if (!snapshot) throw new Error(`Unknown requirementsSnapshotId: ${id}`);
+    return snapshot;
+  }
+
+  function findVariant(id) {
+    const variant = plan.generation.variants.find((item) => item.variantId === id);
+    if (!variant) throw new Error(`Unknown variantId: ${id}`);
+    return variant;
+  }
+
+  function normalizeVariantBlockPlan(input, snapshot) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("blockPlan is required");
+    const moduleSizeMm = Number(input.moduleSizeMm);
+    if (!Number.isFinite(moduleSizeMm) || moduleSizeMm <= 0) throw new Error("blockPlan.moduleSizeMm must be a positive number");
+    if (!Array.isArray(input.categories) || !input.categories.length) throw new Error("blockPlan.categories must be a non-empty array");
+    const categories = GenerationModel.clone(input.categories);
+    const categoryIds = new Set(categories.map((category) => category.id));
+    const cells = GenerationModel.clone(input.cells || {});
+    Object.entries(cells).forEach(([key, cell]) => {
+      if (!/^-?\d+,-?\d+$/.test(key)) throw new Error(`Invalid cell key: ${key}`);
+      if (!cell || !categoryIds.has(cell.categoryId)) throw new Error(`Cell ${key} has unknown categoryId`);
+      if (typeof cell.zoneId !== "string" || !cell.zoneId.trim()) throw new Error(`Cell ${key} must have a zoneId`);
+    });
+    const zoneAssignments = GenerationModel.clone(input.zoneAssignments || {});
+    const zoneIds = new Set(GenerationModel.zonesFor(cells).keys());
+    const bubbleIds = new Set(snapshot.bubbles.map((bubble) => bubble.id));
+    Object.entries(zoneAssignments).forEach(([zoneId, assignment]) => {
+      if (!zoneIds.has(zoneId)) throw new Error(`Unknown Zone id: ${zoneId}`);
+      if (!assignment || !bubbleIds.has(assignment.bubbleId)) throw new Error(`Unknown Bubble id: ${assignment && assignment.bubbleId}`);
+    });
+    return { moduleSizeMm, categories, cells, zoneAssignments };
+  }
+
   const api = {
     version: 1,
 
@@ -344,6 +386,118 @@
       try {
         const errors = getBubbleDiagramErrors(plan.bubbleDiagram);
         return { ok: errors.length === 0, errors, warnings: [] };
+      } catch (error) { return failure(error); }
+    },
+
+    createRequirementsSnapshot(input = {}) {
+      try {
+        requireValidBubbleDiagram(plan.bubbleDiagram);
+        if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Snapshot options must be an object");
+        if (input.metadata !== undefined && (!input.metadata || typeof input.metadata !== "object" || Array.isArray(input.metadata))) throw new Error("Snapshot metadata must be an object");
+        const snapshot = {
+          requirementsSnapshotId: nextGenerationId("requirements", plan.generation.requirementsSnapshots, "requirementsSnapshotId"),
+          version: 1,
+          createdAt: new Date().toISOString(),
+          metadata: GenerationModel.clone(input.metadata || {}),
+          ...GenerationModel.requirementsFromDiagram(plan.bubbleDiagram)
+        };
+        plan.generation.requirementsSnapshots.push(snapshot);
+        sync("Requirements snapshot created");
+        return success({ requirementsSnapshot: GenerationModel.clone(snapshot) });
+      } catch (error) { return failure(error); }
+    },
+
+    listRequirementsSnapshots() {
+      try { return GenerationModel.clone(plan.generation.requirementsSnapshots); } catch (error) { return failure(error); }
+    },
+
+    getRequirementsSnapshot(id) {
+      try { return GenerationModel.clone(findSnapshot(id)); } catch (error) { return failure(error); }
+    },
+
+    getGenerationContext(id) {
+      try {
+        return {
+          requirementsSnapshot: GenerationModel.clone(findSnapshot(id)),
+          workingBlockPlan: GenerationModel.clone({ moduleSizeMm: plan.moduleSizeMm, categories: plan.categories, cells: plan.cells })
+        };
+      } catch (error) { return failure(error); }
+    },
+
+    createVariant(input) {
+      try {
+        const snapshot = findSnapshot(input && input.requirementsSnapshotId);
+        const variantId = String(input.variantId || nextGenerationId("variant", plan.generation.variants, "variantId")).trim();
+        if (!variantId) throw new Error("variantId is required");
+        if (plan.generation.variants.some((item) => item.variantId === variantId)) throw new Error(`Duplicate variantId: ${variantId}`);
+        if (input.parentVariantId != null) findVariant(input.parentVariantId);
+        const variant = {
+          variantId,
+          requirementsSnapshotId: snapshot.requirementsSnapshotId,
+          parentVariantId: input.parentVariantId || null,
+          generationIndex: input.generationIndex === undefined ? plan.generation.variants.length + 1 : Number(input.generationIndex),
+          strategy: input.strategy === undefined ? "" : String(input.strategy),
+          rationale: input.rationale === undefined ? "" : String(input.rationale),
+          generator: GenerationModel.clone(input.generator === undefined ? {} : input.generator),
+          createdAt: input.createdAt || new Date().toISOString(),
+          blockPlan: normalizeVariantBlockPlan(input.blockPlan, snapshot)
+        };
+        if (!Number.isInteger(variant.generationIndex) || variant.generationIndex < 0) throw new Error("generationIndex must be a non-negative integer");
+        plan.generation.variants.push(variant);
+        sync("Variant created");
+        return success({ variant: GenerationModel.clone(variant) });
+      } catch (error) { return failure(error); }
+    },
+
+    listVariants() {
+      try { return GenerationModel.clone(plan.generation.variants); } catch (error) { return failure(error); }
+    },
+
+    getVariant(id) {
+      try { return GenerationModel.clone(findVariant(id)); } catch (error) { return failure(error); }
+    },
+
+    activateVariant(id) {
+      try {
+        const variant = findVariant(id);
+        if (typeof pushUndoState === "function") pushUndoState();
+        plan.moduleSizeMm = variant.blockPlan.moduleSizeMm;
+        plan.categories = GenerationModel.clone(variant.blockPlan.categories);
+        plan.cells = GenerationModel.clone(variant.blockPlan.cells);
+        activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
+        sync("Variant activated");
+        return success({ variantId: variant.variantId, plan: serializePlanForSave() });
+      } catch (error) { return failure(error); }
+    },
+
+    duplicateVariant(input) {
+      try {
+        const source = findVariant(input && (input.sourceVariantId || input.variantId));
+        return api.createVariant({
+          ...GenerationModel.clone(source),
+          ...GenerationModel.clone(input),
+          variantId: input.newVariantId,
+          parentVariantId: source.variantId,
+          blockPlan: GenerationModel.clone(source.blockPlan),
+          createdAt: undefined
+        });
+      } catch (error) { return failure(error); }
+    },
+
+    deleteVariant(id) {
+      try {
+        const variant = findVariant(id);
+        plan.generation.variants = plan.generation.variants.filter((item) => item.variantId !== variant.variantId);
+        sync("Variant deleted");
+        return success({ variantId: variant.variantId });
+      } catch (error) { return failure(error); }
+    },
+
+    validateVariantAgainstDiagram(id) {
+      try {
+        const variant = findVariant(id);
+        const snapshot = findSnapshot(variant.requirementsSnapshotId);
+        return GenerationModel.clone(GenerationModel.validate(variant, snapshot));
       } catch (error) { return failure(error); }
     },
 

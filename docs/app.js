@@ -35,7 +35,8 @@ const defaultPlan = {
   categories,
   cells: {},
   underlay: null,
-  bubbleDiagram: { version: 1, bubbles: [], connectors: [] }
+  bubbleDiagram: { version: 1, bubbles: [], connectors: [] },
+  generation: GenerationModel.emptyState()
 };
 
 let plan = clonePlan(defaultPlan);
@@ -105,7 +106,8 @@ function clonePlan(source) {
       ? Object.fromEntries(Object.entries(source.cells).map(([key, cell]) => [key, { ...cell }]))
       : {},
     underlay: source.underlay ? cloneUnderlay(source.underlay) : null,
-    bubbleDiagram: cloneBubbleDiagram(source.bubbleDiagram)
+    bubbleDiagram: cloneBubbleDiagram(source.bubbleDiagram),
+    generation: GenerationModel.normalizeState(source.generation)
   };
 }
 
@@ -1634,7 +1636,8 @@ function normalizePlan(source) {
     categories: Array.isArray(source.categories) && source.categories.length ? source.categories : categories,
     cells: source.cells && typeof source.cells === "object" ? source.cells : {},
     underlay: source.underlay && typeof source.underlay === "object" ? { ...source.underlay, needsRelink: true } : null,
-    bubbleDiagram: source.bubbleDiagram
+    bubbleDiagram: source.bubbleDiagram,
+    generation: source.generation
   });
 
   Object.keys(normalized.cells).forEach((key) => {

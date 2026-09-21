@@ -15,6 +15,9 @@
 - Do not treat screenshots or PNG files as editable source data.
 - Bubble `position` is presentation state only; semantic relationships must be stored as explicit Bubble Diagram Connectors.
 - Bubble Diagram data must not replace `plan.cells` as the planning geometry source of truth.
+- `plan.generation.requirementsSnapshots` and `plan.generation.variants` are immutable candidate records; manual edits must not mutate them.
+- Variants contain only isolated BlockPlan data, never a recursive complete Plan, and Zone-to-Bubble mapping is explicit in `zoneAssignments`.
+- Validation results are derived on demand and must not be persisted in Variants.
 
 ## Hidden Browser API
 

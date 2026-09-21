@@ -83,6 +83,7 @@ test("old plans normalize an empty Bubble Diagram without changing geometry", as
   }));
   expect(result.ok).toBe(true);
   expect(result.plan.bubbleDiagram).toEqual({ version: 1, bubbles: [], connectors: [] });
+  expect(result.plan.generation).toEqual({ version: 1, requirementsSnapshots: [], variants: [] });
   expect(await page.evaluate(() => window.BlockPlanAPI.getZones())).toEqual([
     expect.objectContaining({ zoneId: "office-old", cellKeys: ["2,3"] })
   ]);
@@ -91,6 +92,123 @@ test("old plans normalize an empty Bubble Diagram without changing geometry", as
   const restored = await page.evaluate(() => window.BlockPlanAPI.getPlan());
   expect(restored.bubbleDiagram).toEqual({ version: 1, bubbles: [], connectors: [] });
   expect(restored.cells["2,3"]).toEqual({ categoryId: "office", zoneId: "office-old" });
+});
+
+test("generation snapshots and isolated variants validate and activate safely", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setPlan({
+      version: 1,
+      moduleSizeMm: 3600,
+      categories: [{ id: "space", name: "Space", color: "#AABB9C" }],
+      cells: { "9,9": { categoryId: "space", zoneId: "working" } },
+      underlay: { name: "reference.png", visible: false, transform: { x: 7, y: 8, scale: 1, rotation: 0 } },
+      bubbleDiagram: {
+        version: 1,
+        bubbles: [
+          { id: "bedroom", name: "Bedroom", type: "space", size: { value: 25.92, unit: "sqm" }, quantity: 2, position: { x: 10, y: 20 }, metadata: { wing: "west" } },
+          { id: "hall", name: "Hall", type: "circulation", size: { value: 12.96, unit: "sqm" }, quantity: 1, position: { x: 40, y: 20 }, metadata: {} },
+          { id: "quiet", name: "Quiet", type: "space", size: { value: 12.96, unit: "sqm" }, quantity: 1, position: { x: 90, y: 20 }, metadata: {} }
+        ],
+        connectors: [
+          { id: "adj", fromBubbleId: "bedroom", toBubbleId: "hall", relationType: "adjacent", priority: "required", direction: null, metadata: {} },
+          { id: "near", fromBubbleId: "hall", toBubbleId: "quiet", relationType: "near", priority: "preferred", direction: null, metadata: {} },
+          { id: "sep", fromBubbleId: "bedroom", toBubbleId: "quiet", relationType: "separate", priority: "required", direction: null, metadata: {} }
+        ]
+      }
+    });
+    const snapshotResult = api.createRequirementsSnapshot();
+    const snapshot = snapshotResult.requirementsSnapshot;
+    api.updateBubble({ id: "bedroom", name: "Changed", position: { x: 999, y: 999 }, metadata: { changed: true } });
+    const blockPlan = {
+      moduleSizeMm: 3600,
+      categories: [{ id: "space", name: "Space", color: "#AABB9C" }],
+      cells: {
+        "0,0": { categoryId: "space", zoneId: "bed-1" },
+        "0,2": { categoryId: "space", zoneId: "bed-2" },
+        "1,0": { categoryId: "space", zoneId: "hall-1" },
+        "4,0": { categoryId: "space", zoneId: "quiet-1" },
+        "8,8": { categoryId: "space", zoneId: "orphan" }
+      },
+      zoneAssignments: {
+        "bed-1": { bubbleId: "bedroom" }, "bed-2": { bubbleId: "bedroom" },
+        "hall-1": { bubbleId: "hall" }, "quiet-1": { bubbleId: "quiet" }
+      }
+    };
+    const before = api.getPlan();
+    const a = api.createVariant({ requirementsSnapshotId: snapshot.requirementsSnapshotId, variantId: "a", strategy: "edge", blockPlan });
+    blockPlan.cells["0,0"].zoneId = "tampered";
+    const b = api.createVariant({ requirementsSnapshotId: snapshot.requirementsSnapshotId, variantId: "b", blockPlan: a.variant.blockPlan });
+    const invalidZone = api.createVariant({ requirementsSnapshotId: snapshot.requirementsSnapshotId, variantId: "bad", blockPlan: { ...a.variant.blockPlan, zoneAssignments: { missing: { bubbleId: "bedroom" } } } });
+    const invalidBubble = api.createVariant({ requirementsSnapshotId: snapshot.requirementsSnapshotId, variantId: "bad2", blockPlan: { ...a.variant.blockPlan, zoneAssignments: { "bed-1": { bubbleId: "missing" } } } });
+    const duplicate = api.duplicateVariant({ sourceVariantId: "a", newVariantId: "copy" });
+    duplicate.variant.blockPlan.cells["0,0"].zoneId = "leak";
+    return {
+      snapshot, storedSnapshot: api.getRequirementsSnapshot(snapshot.requirementsSnapshotId), before, afterCreate: api.getPlan(),
+      a: api.getVariant("a"), b: api.getVariant("b"), storedCopy: api.getVariant("copy"), invalidZone, invalidBubble,
+      validation: api.validateVariantAgainstDiagram("a"), activation: api.activateVariant("a")
+    };
+  });
+
+  expect(result.snapshot.bubbles[0]).not.toHaveProperty("position");
+  expect(result.storedSnapshot.bubbles[0]).toMatchObject({ name: "Bedroom", metadata: { wing: "west" } });
+  expect(result.before.cells).toEqual(result.afterCreate.cells);
+  expect(result.a.blockPlan.cells["0,0"].zoneId).toBe("bed-1");
+  expect(result.b.variantId).toBe("b");
+  expect(result.storedCopy.blockPlan.cells["0,0"].zoneId).toBe("bed-1");
+  expect(result.invalidZone.ok).toBe(false);
+  expect(result.invalidBubble.ok).toBe(false);
+  expect(result.validation.dataErrors).toEqual([]);
+  expect(result.validation.hardViolations).toEqual([]);
+  expect(result.validation.metrics.quantities.find((item) => item.bubbleId === "bedroom")).toMatchObject({ target: 2, actual: 2 });
+  expect(result.validation.metrics.sizes.filter((item) => item.bubbleId === "bedroom")).toEqual([
+    expect.objectContaining({ zoneId: "bed-1", targetSqm: 25.92, actualSqm: 12.96, deltaSqm: -12.96, ratio: 0.5 }),
+    expect.objectContaining({ zoneId: "bed-2", targetSqm: 25.92, actualSqm: 12.96, deltaSqm: -12.96, ratio: 0.5 })
+  ]);
+  expect(result.validation.metrics.relationships).toEqual(expect.arrayContaining([
+    expect.objectContaining({ connectorId: "adj", minimumGridDistance: 1, adjacentPairCount: 1, fromCoverage: 0.5, toCoverage: 1 }),
+    expect.objectContaining({ connectorId: "near", minimumGridDistance: 3 }),
+    expect.objectContaining({ connectorId: "sep", minimumGridDistance: 4 })
+  ]));
+  expect(result.validation.metrics.orphans).toEqual(["orphan"]);
+  expect(result.activation.plan.cells).toEqual(result.a.blockPlan.cells);
+  expect(result.activation.plan.bubbleDiagram.bubbles.find((bubble) => bubble.id === "bedroom").name).toBe("Changed");
+  expect(result.activation.plan.generation.variants).toHaveLength(3);
+  expect(result.activation.plan.underlay.name).toBe("reference.png");
+
+  await page.keyboard.press("Control+z");
+  const undone = await page.evaluate(() => window.BlockPlanAPI.getPlan());
+  expect(undone.cells).toEqual(result.before.cells);
+  expect(undone.generation.variants).toHaveLength(3);
+  expect(undone.bubbleDiagram.bubbles.find((bubble) => bubble.id === "bedroom").name).toBe("Changed");
+
+  await page.reload();
+  const restored = await page.evaluate(() => window.BlockPlanAPI.getPlan());
+  expect(restored.generation).toEqual(undone.generation);
+});
+
+test("variant validation separates hard and soft relationship failures", async ({ page }) => {
+  await page.goto(appUrl);
+  const validation = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setBubbleDiagram({ version: 1, bubbles: [
+      { id: "a", name: "A", size: { value: 1, unit: "sqm" }, quantity: 2, position: { x: 0, y: 0 } },
+      { id: "b", name: "B", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } }
+    ], connectors: [
+      { id: "required-adjacent", fromBubbleId: "a", toBubbleId: "b", relationType: "adjacent", priority: "required" },
+      { id: "preferred-separate", fromBubbleId: "a", toBubbleId: "b", relationType: "separate", priority: "preferred" }
+    ] });
+    const snapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    api.createVariant({ variantId: "violations", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: {
+      moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }],
+      cells: { "0,0": { categoryId: "x", zoneId: "a1" }, "1,0": { categoryId: "x", zoneId: "b1" } },
+      zoneAssignments: { a1: { bubbleId: "a" }, b1: { bubbleId: "b" } }
+    } });
+    return api.validateVariantAgainstDiagram("violations");
+  });
+  expect(validation.hardViolations).toEqual(expect.arrayContaining([expect.objectContaining({ code: "quantity_mismatch", bubbleId: "a" })]));
+  expect(validation.softIssues).toEqual([expect.objectContaining({ code: "separate_violation" })]);
 });
 
 test("Bubble and Connector CRUD round-trips semantic and presentation state", async ({ page }) => {
