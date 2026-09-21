@@ -9,6 +9,7 @@
     <title>BlockPlan - Fast Pre-BIM Zoning Planner</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='8' fill='%233A6272'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="underlay-dock.css">
   </head>
   <body>
     <div class="app-shell">
@@ -93,7 +94,7 @@
           <div id="dashboard" data-testid="dashboard" class="dashboard"></div>
         </section>
 
-        <section>
+        <section id="underlayDock" data-testid="underlay-dock" class="underlay-panel" aria-label="Underlay controls">
           <h2>Underlay</h2>
           <div class="underlay-controls">
             <p id="underlayStatus" class="underlay-status">No underlay linked</p>
