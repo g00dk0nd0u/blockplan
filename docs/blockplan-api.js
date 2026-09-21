@@ -18,6 +18,7 @@
     renderCategoryList();
     updateUi();
     if (typeof window.refreshBubbleEditor === "function") window.refreshBubbleEditor();
+    if (typeof window.refreshReviewDock === "function") window.refreshReviewDock();
     if (status) showSaveStatus(status);
   }
 
@@ -111,6 +112,12 @@
     const variant = plan.generation.variants.find((item) => item.variantId === id);
     if (!variant) throw new Error(`Unknown variantId: ${id}`);
     return variant;
+  }
+
+  function findReview(id) {
+    const review = plan.review.reviews.find((item) => item.reviewId === id);
+    if (!review) throw new Error(`Unknown reviewId: ${id}`);
+    return review;
   }
 
   function nextGenerationIndex() {
@@ -473,6 +480,9 @@
         if (plan.generation.variants.some((item) => item.parentVariantId === variant.variantId)) {
           throw new Error(`Cannot delete Variant with children: ${variant.variantId}`);
         }
+        if (plan.review.reviews.some((review) => review.variantId === variant.variantId || review.preferredOverVariantId === variant.variantId)) {
+          throw new Error(`Cannot delete Variant referenced by Review history: ${variant.variantId}`);
+        }
         plan.generation.variants = plan.generation.variants.filter((item) => item.variantId !== variant.variantId);
         sync("Variant deleted");
         return success({ variantId: variant.variantId });
@@ -484,6 +494,85 @@
         const variant = findVariant(id);
         const snapshot = findSnapshot(variant.requirementsSnapshotId);
         return GenerationModel.clone(GenerationModel.validate(variant, snapshot));
+      } catch (error) { return failure(error); }
+    },
+
+    createReview(input) {
+      try {
+        if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Review input must be an object");
+        const variant = findVariant(input.variantId);
+        if (!["accept", "iterate", "reject"].includes(input.decision)) throw new Error("decision must be accept, iterate, or reject");
+        const reviewId = String(input.reviewId || nextGenerationId("review", plan.review.reviews, "reviewId")).trim();
+        if (!reviewId) throw new Error("reviewId is required");
+        if (plan.review.reviews.some((item) => item.reviewId === reviewId)) throw new Error(`Duplicate reviewId: ${reviewId}`);
+        const preferredId = input.preferredOverVariantId == null || input.preferredOverVariantId === "" ? null : String(input.preferredOverVariantId);
+        if (preferredId !== null) {
+          const preferred = findVariant(preferredId);
+          if (preferred.variantId === variant.variantId) throw new Error("A Variant cannot be preferred over itself");
+          if (preferred.requirementsSnapshotId !== variant.requirementsSnapshotId) throw new Error("Preferred Variant must use the same Requirements Snapshot");
+        }
+        const review = {
+          reviewId,
+          variantId: variant.variantId,
+          requirementsSnapshotId: variant.requirementsSnapshotId,
+          decision: input.decision,
+          good: ReviewModel.textItems(input.good),
+          problems: ReviewModel.textItems(input.problems),
+          nextInstructions: ReviewModel.textItems(input.nextInstructions),
+          preferredOverVariantId: preferredId,
+          createdAt: input.createdAt || new Date().toISOString()
+        };
+        ReviewModel.requireValidState({ version: 1, reviews: [...plan.review.reviews, review] }, plan.generation);
+        plan.review.reviews.push(review);
+        sync("Review saved");
+        return success({ review: ReviewModel.clone(review) });
+      } catch (error) { return failure(error); }
+    },
+
+    listReviews(filter = {}) {
+      try {
+        if (!filter || typeof filter !== "object" || Array.isArray(filter)) throw new Error("Review filter must be an object");
+        return ReviewModel.clone(plan.review.reviews.filter((review) =>
+          (filter.variantId === undefined || review.variantId === filter.variantId) &&
+          (filter.requirementsSnapshotId === undefined || review.requirementsSnapshotId === filter.requirementsSnapshotId) &&
+          (filter.decision === undefined || review.decision === filter.decision)));
+      } catch (error) { return failure(error); }
+    },
+
+    getReview(id) {
+      try { return ReviewModel.clone(findReview(id)); } catch (error) { return failure(error); }
+    },
+
+    getVariantReviews(id) {
+      try {
+        findVariant(id);
+        return ReviewModel.clone(plan.review.reviews.filter((review) => review.variantId === id));
+      } catch (error) { return failure(error); }
+    },
+
+    getIterationContext(id) {
+      try {
+        const variant = findVariant(id);
+        const lineage = [];
+        const seen = new Set();
+        let cursor = variant;
+        while (cursor) {
+          if (seen.has(cursor.variantId)) throw new Error("Variant lineage contains a cycle");
+          seen.add(cursor.variantId);
+          lineage.unshift(cursor);
+          cursor = cursor.parentVariantId === null ? null : findVariant(cursor.parentVariantId);
+        }
+        const lineageIds = new Set(lineage.map((item) => item.variantId));
+        const reviews = plan.review.reviews.filter((review) => lineageIds.has(review.variantId))
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.reviewId.localeCompare(b.reviewId));
+        return ReviewModel.clone({
+          requirementsSnapshot: findSnapshot(variant.requirementsSnapshotId),
+          variant,
+          validation: GenerationModel.validate(variant, findSnapshot(variant.requirementsSnapshotId)),
+          lineage,
+          reviews,
+          nextChildDefaults: { parentVariantId: variant.variantId, requirementsSnapshotId: variant.requirementsSnapshotId }
+        });
       } catch (error) { return failure(error); }
     },
 

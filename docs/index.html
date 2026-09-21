@@ -71,6 +71,7 @@
           <span id="zoomStatus">100%</span>
           <span id="cellStatus">Cell 0, 0</span>
         </div>
+        <section id="reviewDock" data-testid="review-dock" class="review-dock" aria-label="Variant review" hidden></section>
       </main>
 
       <main id="bubbleWorkspace" data-testid="bubble-workspace" class="bubble-workspace" aria-label="Bubble Diagram workspace" hidden>
@@ -151,9 +152,12 @@
     </div>
 
     <script src="generation-model.js"></script>
+    <script src="review-model.js"></script>
     <script src="app.js"></script>
+    <script src="review-guard.js"></script>
     <script src="interaction-patch.js"></script>
     <script src="bubble-editor.js"></script>
     <script src="blockplan-api.js"></script>
+    <script src="review-ui.js"></script>
   </body>
 </html>
