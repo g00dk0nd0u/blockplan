@@ -132,8 +132,8 @@ function normalizeBubble(input) {
   return {
     ...bubble,
     type: bubble.type === undefined ? "space" : bubble.type,
-    size: bubble.size && typeof bubble.size === "object" && !Array.isArray(bubble.size) ? { ...bubble.size } : bubble.size,
-    quantity: bubble.quantity === undefined ? 1 : bubble.quantity,
+    size: bubble.size === undefined ? null : bubble.size && typeof bubble.size === "object" && !Array.isArray(bubble.size) ? { ...bubble.size } : bubble.size,
+    quantity: bubble.quantity === undefined ? null : bubble.quantity,
     position: bubble.position === undefined
       ? { x: 0, y: 0 }
       : bubble.position && typeof bubble.position === "object" && !Array.isArray(bubble.position) ? { ...bubble.position } : bubble.position,
@@ -148,6 +148,8 @@ function normalizeConnector(input) {
   if (!connector || typeof connector !== "object" || Array.isArray(connector)) return connector;
   return {
     ...connector,
+    relationType: connector.relationType === undefined ? "adjacent" : connector.relationType,
+    priority: connector.priority === undefined ? "preferred" : connector.priority,
     direction: connector.direction === undefined ? null : connector.direction,
     metadata: connector.metadata === undefined
       ? {}
@@ -185,9 +187,9 @@ function getBubbleDiagramErrors(diagram) {
     else bubbleIds.add(bubble.id);
     if (typeof bubble.name !== "string" || !bubble.name.trim()) add("invalid_bubble_name", `${path}.name`, "Bubble name is required");
     if (typeof bubble.type !== "string" || !bubble.type.trim()) add("invalid_bubble_type", `${path}.type`, "Bubble type is required");
-    if (!Number.isInteger(bubble.quantity) || bubble.quantity <= 0) add("invalid_quantity", `${path}.quantity`, "quantity must be a positive integer");
-    if (!bubble.size || typeof bubble.size !== "object" || !Number.isFinite(bubble.size.value) || bubble.size.value <= 0) add("invalid_size_value", `${path}.size.value`, "size.value must be a positive number");
-    if (!bubble.size || typeof bubble.size.unit !== "string" || !bubble.size.unit.trim()) add("invalid_size_unit", `${path}.size.unit`, "size.unit is required");
+    if (bubble.quantity !== null && (!Number.isInteger(bubble.quantity) || bubble.quantity <= 0)) add("invalid_quantity", `${path}.quantity`, "quantity must be null or a positive integer");
+    if (bubble.size !== null && (!bubble.size || typeof bubble.size !== "object" || !Number.isFinite(bubble.size.value) || bubble.size.value <= 0)) add("invalid_size_value", `${path}.size.value`, "size must be null or size.value must be a positive number");
+    if (bubble.size !== null && (!bubble.size || typeof bubble.size.unit !== "string" || !bubble.size.unit.trim())) add("invalid_size_unit", `${path}.size.unit`, "size.unit is required when size is specified");
     if (!bubble.position || typeof bubble.position !== "object" || !Number.isFinite(bubble.position.x) || !Number.isFinite(bubble.position.y)) add("invalid_position", `${path}.position`, "position.x and position.y must be finite numbers");
     if (!bubble.metadata || typeof bubble.metadata !== "object" || Array.isArray(bubble.metadata)) add("invalid_metadata", `${path}.metadata`, "metadata must be an object");
   });

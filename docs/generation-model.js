@@ -157,9 +157,9 @@
       const zoneIds = assignedByBubble.get(bubble.id).sort();
       const quantity = { bubbleId: bubble.id, target: bubble.quantity, actual: zoneIds.length, zoneIds };
       quantities.push(quantity);
-      if (quantity.actual !== quantity.target) hardViolations.push({ code: "quantity_mismatch", ...quantity });
+      if (quantity.target !== null && quantity.actual !== quantity.target) hardViolations.push({ code: "quantity_mismatch", ...quantity });
       const targetSqm = bubble.size && ["sqm", "m2", "m²"].includes(String(bubble.size.unit).toLowerCase()) ? bubble.size.value : null;
-      if (targetSqm === null) dataErrors.push({ code: "unsupported_size_unit", bubbleId: bubble.id, unit: bubble.size && bubble.size.unit });
+      if (bubble.size !== null && targetSqm === null) dataErrors.push({ code: "unsupported_size_unit", bubbleId: bubble.id, unit: bubble.size && bubble.size.unit });
       zoneIds.forEach((zoneId) => {
         const actualSqm = zones.get(zoneId).length * Math.pow(block.moduleSizeMm / 1000, 2);
         sizes.push({

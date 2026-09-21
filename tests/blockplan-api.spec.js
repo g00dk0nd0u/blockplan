@@ -352,6 +352,30 @@ test("variant validation separates hard and soft relationship failures", async (
   expect(validation.softIssues).toEqual([expect.objectContaining({ code: "separate_violation" })]);
 });
 
+test("nullable Bubble constraints survive snapshots and do not create validation violations", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setBubbleDiagram({ version: 1, bubbles: [
+      { id: "open", name: "Open", size: null, quantity: null, position: { x: 0, y: 0 } }
+    ], connectors: [] });
+    const snapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    api.createVariant({ variantId: "unconstrained", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: {
+      moduleSizeMm: 1000,
+      categories: [{ id: "x", name: "X", color: "#111111" }],
+      cells: { "0,0": { categoryId: "x", zoneId: "open-1" } },
+      zoneAssignments: { "open-1": { bubbleId: "open" } }
+    } });
+    return { snapshot, validation: api.validateVariantAgainstDiagram("unconstrained") };
+  });
+
+  expect(result.snapshot.bubbles[0]).toMatchObject({ size: null, quantity: null });
+  expect(result.validation.dataErrors).toEqual([]);
+  expect(result.validation.hardViolations).toEqual([]);
+  expect(result.validation.metrics.quantities[0]).toMatchObject({ target: null, actual: 1 });
+  expect(result.validation.metrics.sizes[0]).toMatchObject({ targetSqm: null, actualSqm: 1, deltaSqm: null, ratio: null });
+});
+
 test("relationships without an assigned group are not evaluable and do not duplicate violations", async ({ page }) => {
   await page.goto(appUrl);
   const validation = await page.evaluate(() => {
@@ -597,7 +621,7 @@ test("normal JSON Load shares Bubble Diagram normalization and validation", asyn
   await input.setInputFiles({ name: "valid-plan.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(validPlan)) });
   await expect(page.locator("[data-testid='save-status']")).toHaveText("JSON loaded");
   loaded = await page.evaluate(() => window.BlockPlanAPI.getPlan());
-  expect(loaded.bubbleDiagram.bubbles[0]).toMatchObject({ type: "space", quantity: 1, position: { x: 0, y: 0 }, metadata: {} });
+  expect(loaded.bubbleDiagram.bubbles[0]).toMatchObject({ type: "space", quantity: null, position: { x: 0, y: 0 }, metadata: {} });
   expect(loaded.bubbleDiagram.connectors[0]).toMatchObject({ direction: null, metadata: {} });
 
   const beforeInvalidLoad = loaded;
@@ -615,7 +639,7 @@ test("normal JSON Load shares Bubble Diagram normalization and validation", asyn
   expect(await page.evaluate(() => window.BlockPlanAPI.getPlan())).toEqual(beforeInvalidLoad);
 });
 
-test("whole-diagram API canonicalizes optional fields but rejects missing semantics", async ({ page }) => {
+test("whole-diagram API canonicalizes nullable fields and connector defaults", async ({ page }) => {
   await page.goto(appUrl);
   const result = await page.evaluate(() => {
     const api = window.BlockPlanAPI;
@@ -634,15 +658,15 @@ test("whole-diagram API canonicalizes optional fields but rejects missing semant
       bubbles: [{ id: "nameless", size: { value: 1, unit: "sqm" } }],
       connectors: []
     });
-    const missingBubbleSize = api.addBubble({ id: "no-size", name: "No size" });
-    const missingRelation = api.connectBubbles({ id: "bad-connector", fromBubbleId: "a", toBubbleId: "b", priority: "required" });
-    return { accepted, beforeFailures, missingBubbleId, missingBubbleName, missingBubbleSize, missingRelation, afterFailures: api.getBubbleDiagram() };
+    const unspecifiedBubble = api.addBubble({ id: "no-size", name: "No size" });
+    const defaultConnector = api.connectBubbles({ id: "default-connector", fromBubbleId: "a", toBubbleId: "b" });
+    return { accepted, beforeFailures, missingBubbleId, missingBubbleName, unspecifiedBubble, defaultConnector, afterChanges: api.getBubbleDiagram() };
   });
 
   expect(result.accepted.ok).toBe(true);
   expect(result.accepted.bubbleDiagram.bubbles).toEqual([
-    { id: "a", name: "A", type: "space", size: { value: 10, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 }, metadata: {} },
-    { id: "b", name: "B", type: "space", size: { value: 12, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 }, metadata: {} }
+    { id: "a", name: "A", type: "space", size: { value: 10, unit: "sqm" }, quantity: null, position: { x: 0, y: 0 }, metadata: {} },
+    { id: "b", name: "B", type: "space", size: { value: 12, unit: "sqm" }, quantity: null, position: { x: 0, y: 0 }, metadata: {} }
   ]);
   expect(result.accepted.bubbleDiagram.connectors[0]).toEqual({
     id: "a-b",
@@ -655,9 +679,8 @@ test("whole-diagram API canonicalizes optional fields but rejects missing semant
   });
   expect(result.missingBubbleId.ok).toBe(false);
   expect(result.missingBubbleName.ok).toBe(false);
-  expect(result.missingBubbleSize.ok).toBe(false);
-  expect(result.missingRelation.ok).toBe(false);
-  expect(result.afterFailures).toEqual(result.beforeFailures);
+  expect(result.unspecifiedBubble.bubble).toMatchObject({ size: null, quantity: null });
+  expect(result.defaultConnector.connector).toMatchObject({ relationType: "adjacent", priority: "preferred" });
 });
 
 test("nested Bubble and Connector metadata is defensively copied across API boundaries", async ({ page }) => {
