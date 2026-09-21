@@ -84,6 +84,7 @@ test("old plans normalize an empty Bubble Diagram without changing geometry", as
   expect(result.ok).toBe(true);
   expect(result.plan.bubbleDiagram).toEqual({ version: 1, bubbles: [], connectors: [] });
   expect(result.plan.generation).toEqual({ version: 1, requirementsSnapshots: [], variants: [] });
+  expect(result.plan.review).toEqual({ version: 1, reviews: [] });
   expect(await page.evaluate(() => window.BlockPlanAPI.getZones())).toEqual([
     expect.objectContaining({ zoneId: "office-old", cellKeys: ["2,3"] })
   ]);
@@ -92,6 +93,122 @@ test("old plans normalize an empty Bubble Diagram without changing geometry", as
   const restored = await page.evaluate(() => window.BlockPlanAPI.getPlan());
   expect(restored.bubbleDiagram).toEqual({ version: 1, bubbles: [], connectors: [] });
   expect(restored.cells["2,3"]).toEqual({ categoryId: "office", zoneId: "office-old" });
+});
+
+test("Review history is append-only, validated, cloned, persisted, and exposed as iteration context", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    const bubble = (id) => ({ id, name: id, size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } });
+    const blockPlan = (zoneId) => ({
+      moduleSizeMm: 1000,
+      categories: [{ id: "space", name: "Space", color: "#AABB9C" }],
+      cells: { "0,0": { categoryId: "space", zoneId } },
+      zoneAssignments: { [zoneId]: { bubbleId: "room" } }
+    });
+    api.setBubbleDiagram({ version: 1, bubbles: [bubble("room")], connectors: [] });
+    const firstSnapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    api.createVariant({ variantId: "root", requirementsSnapshotId: firstSnapshot.requirementsSnapshotId, blockPlan: blockPlan("root-zone") });
+    api.createVariant({ variantId: "child", parentVariantId: "root", requirementsSnapshotId: firstSnapshot.requirementsSnapshotId, blockPlan: blockPlan("child-zone") });
+    api.createVariant({ variantId: "peer", requirementsSnapshotId: firstSnapshot.requirementsSnapshotId, blockPlan: blockPlan("peer-zone") });
+    api.setBubbleDiagram({ version: 1, bubbles: [bubble("other")], connectors: [] });
+    const secondSnapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    api.createVariant({ variantId: "unrelated", requirementsSnapshotId: secondSnapshot.requirementsSnapshotId, blockPlan: {
+      moduleSizeMm: 1000, categories: [{ id: "space", name: "Space", color: "#AABB9C" }],
+      cells: { "3,3": { categoryId: "space", zoneId: "other-zone" } }, zoneAssignments: { "other-zone": { bubbleId: "other" } }
+    } });
+    const accepted = api.createReview({ reviewId: "review-a", variantId: "root", requirementsSnapshotId: "ignored", decision: "accept", good: " clear plan \n\n usable ", problems: ["", "tight"], nextInstructions: "", createdAt: "2026-01-01T00:00:00.000Z" });
+    accepted.review.good.push("leak");
+    const iterated = api.createReview({ reviewId: "review-b", variantId: "child", decision: "iterate", nextInstructions: ["widen hall"], preferredOverVariantId: "peer", createdAt: "2026-01-02T00:00:00.000Z" });
+    const rejected = api.createReview({ reviewId: "review-c", variantId: "child", decision: "reject", problems: ["blocked entry"], createdAt: "2026-01-03T00:00:00.000Z" });
+    const invalidVariant = api.createReview({ variantId: "missing", decision: "accept" });
+    const invalidPreference = api.createReview({ variantId: "child", decision: "accept", preferredOverVariantId: "unrelated" });
+    const duplicateReview = api.createReview({ reviewId: "review-a", variantId: "child", decision: "accept" });
+    const listed = api.listReviews();
+    listed[0].good.push("list leak");
+    const context = api.getIterationContext("child");
+    context.variant.blockPlan.cells["0,0"].zoneId = "context leak";
+    return {
+      accepted, iterated, rejected, invalidVariant, invalidPreference, duplicateReview,
+      stored: api.getReview("review-a"), reviews: api.listReviews(), childReviews: api.getVariantReviews("child"),
+      context, freshVariant: api.getVariant("child"), deleteReviewed: api.deleteVariant("child"), deletePreferred: api.deleteVariant("peer"), plan: api.getPlan()
+    };
+  });
+  expect(result.accepted.review).toMatchObject({ reviewId: "review-a", variantId: "root", requirementsSnapshotId: "requirements-1", decision: "accept", problems: ["tight"], nextInstructions: [], preferredOverVariantId: null });
+  expect(result.iterated.review.decision).toBe("iterate");
+  expect(result.rejected.review.decision).toBe("reject");
+  expect(result.invalidVariant.ok).toBe(false);
+  expect(result.invalidPreference).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining("same Requirements Snapshot") }));
+  expect(result.duplicateReview.ok).toBe(false);
+  expect(result.stored.good).toEqual(["clear plan", "usable"]);
+  expect(result.reviews).toHaveLength(3);
+  expect(result.childReviews.map((review) => review.decision)).toEqual(["iterate", "reject"]);
+  expect(result.deleteReviewed).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining("Review history") }));
+  expect(result.deletePreferred).toEqual(expect.objectContaining({ ok: false, error: expect.stringContaining("Review history") }));
+  expect(result.context.requirementsSnapshot.requirementsSnapshotId).toBe("requirements-1");
+  expect(result.context.lineage.map((variant) => variant.variantId)).toEqual(["root", "child"]);
+  expect(result.context.reviews.map((review) => review.reviewId)).toEqual(["review-a", "review-b", "review-c"]);
+  expect(result.context.validation).toHaveProperty("metrics");
+  expect(result.context.nextChildDefaults).toEqual({ parentVariantId: "child", requirementsSnapshotId: "requirements-1" });
+  expect(result.context.reviews[0]).not.toHaveProperty("validation");
+  expect(result.freshVariant.blockPlan.cells["0,0"].zoneId).toBe("child-zone");
+  expect(result.plan.review.reviews).toHaveLength(3);
+
+  await page.reload();
+  expect((await page.evaluate(() => window.BlockPlanAPI.getPlan())).review.reviews).toHaveLength(3);
+  const roundTrip = await page.evaluate(() => {
+    const saved = window.BlockPlanAPI.getPlan();
+    return window.BlockPlanAPI.setPlan(JSON.stringify(saved));
+  });
+  expect(roundTrip.ok).toBe(true);
+  expect(roundTrip.plan.review.reviews.map((review) => review.reviewId)).toEqual(["review-a", "review-b", "review-c"]);
+});
+
+test("compact Review UI activates Variants, blocks geometry edits, and keeps zoom and pan available", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setBubbleDiagram({ version: 1, bubbles: [{ id: "room", name: "Room", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } }], connectors: [] });
+    const snapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    const blockPlan = (x) => ({ moduleSizeMm: 1000, categories: [{ id: "space", name: "Space", color: "#AABB9C" }], cells: { [`${x},0`]: { categoryId: "space", zoneId: `zone-${x}` } }, zoneAssignments: { [`zone-${x}`]: { bubbleId: "room" } } });
+    api.createVariant({ variantId: "first", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: blockPlan(0) });
+    api.createVariant({ variantId: "second", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: blockPlan(2) });
+  });
+  const dock = page.getByTestId("review-dock");
+  await expect(dock).toBeVisible();
+  await page.getByTestId("tool-select").click();
+  await page.keyboard.press("b");
+  await page.getByTestId("review-variant-select").selectOption("second");
+  await page.getByTestId("review-toggle").click();
+  await expect(dock).toContainText("Reviewing second");
+  expect(await page.evaluate(() => Object.keys(window.BlockPlanAPI.getPlan().cells))).toEqual(["2,0"]);
+
+  const before = await page.evaluate(() => window.BlockPlanAPI.getPlan().cells);
+  const canvas = page.getByTestId("planning-canvas");
+  const box = await canvas.boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  expect(await page.evaluate(() => window.BlockPlanAPI.getPlan().cells)).toEqual(before);
+
+  const zoomBefore = await page.locator("#zoomStatus").textContent();
+  await canvas.hover();
+  await page.mouse.wheel(0, -100);
+  await expect(page.locator("#zoomStatus")).not.toHaveText(zoomBefore);
+  await page.mouse.move(box.x + 100, box.y + 100);
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(box.x + 140, box.y + 130);
+  await page.mouse.up({ button: "middle" });
+
+  await page.getByTestId("review-iterate").click();
+  await dock.screenshot({ path: "test-results/review-dock.png" });
+  await page.locator("[data-review-field='good']").fill("Works\n\nCompact");
+  await page.locator("[data-review-field='nextInstructions']").fill("Try a wider entry");
+  await page.locator("[data-review-field='preferredOverVariantId']").selectOption("first");
+  await page.getByTestId("review-save").click();
+  expect(await page.evaluate(() => window.BlockPlanAPI.listReviews())).toEqual([
+    expect.objectContaining({ variantId: "second", decision: "iterate", good: ["Works", "Compact"], nextInstructions: ["Try a wider entry"], preferredOverVariantId: "first" })
+  ]);
+  await page.getByTestId("review-toggle").click();
+  await expect(page.locator("body")).not.toHaveClass(/review-mode/);
 });
 
 test("generation snapshots and isolated variants validate and activate safely", async ({ page }) => {

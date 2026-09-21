@@ -417,6 +417,30 @@ h2 {
   position: relative;
 }
 
+.review-dock {
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  max-width: 310px;
+  padding: 8px;
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 6;
+}
+.review-dock-row, .review-decisions, .review-editor-actions { align-items: center; display: flex; gap: 6px; justify-content: space-between; }
+.review-dock select, .review-dock textarea { box-sizing: border-box; font: inherit; max-width: 100%; }
+.review-target { color: var(--muted); margin: 7px 0; }
+.review-decisions button { flex: 1; }
+.review-editor { border-top: 1px solid var(--line); display: grid; gap: 6px; margin-top: 8px; padding-top: 8px; }
+.review-editor label { display: grid; gap: 2px; }
+.review-editor textarea { resize: vertical; width: 100%; }
+.review-save { background: var(--accent); color: white; }
+.review-error { color: #9a3028; margin: 0; }
+body.review-mode .tool-actions, body.review-mode .left-sidebar, body.review-mode .right-sidebar { opacity: .45; pointer-events: none; }
+
 #planningCanvas {
   cursor: crosshair;
   display: block;

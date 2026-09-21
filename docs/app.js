@@ -36,7 +36,8 @@ const defaultPlan = {
   cells: {},
   underlay: null,
   bubbleDiagram: { version: 1, bubbles: [], connectors: [] },
-  generation: GenerationModel.emptyState()
+  generation: GenerationModel.emptyState(),
+  review: ReviewModel.emptyState()
 };
 
 let plan = clonePlan(defaultPlan);
@@ -60,6 +61,7 @@ let underlayEditMode = null;
 let underlayMoveDraft = null;
 let underlayScalePoints = [];
 let editorMode = "block";
+let reviewModeActive = false;
 
 function isBubbleEditorMode() {
   return editorMode === "bubble";
@@ -107,7 +109,8 @@ function clonePlan(source) {
       : {},
     underlay: source.underlay ? cloneUnderlay(source.underlay) : null,
     bubbleDiagram: cloneBubbleDiagram(source.bubbleDiagram),
-    generation: GenerationModel.normalizeState(source.generation)
+    generation: GenerationModel.normalizeState(source.generation),
+    review: ReviewModel.normalizeState(source.review)
   };
 }
 
@@ -240,6 +243,7 @@ function bindEvents() {
   });
 
   moduleSizeSelect.addEventListener("change", () => {
+    if (reviewModeActive) return;
     plan.moduleSizeMm = Number(moduleSizeSelect.value);
     persistPlan();
     updateUi();
@@ -288,6 +292,7 @@ function bindEvents() {
     if (isBubbleEditorMode()) {
       return;
     }
+    if (reviewModeActive && event.code !== "Space" && event.key !== "Escape") return;
     if (event.code === "Space") {
       event.preventDefault();
       isSpaceDown = true;
@@ -511,6 +516,8 @@ function onPointerDown(event) {
     canvas.style.cursor = "grabbing";
     return;
   }
+
+  if (reviewModeActive) return;
 
   if (event.button !== 0) {
     return;
@@ -1637,7 +1644,8 @@ function normalizePlan(source) {
     cells: source.cells && typeof source.cells === "object" ? source.cells : {},
     underlay: source.underlay && typeof source.underlay === "object" ? { ...source.underlay, needsRelink: true } : null,
     bubbleDiagram: source.bubbleDiagram,
-    generation: source.generation
+    generation: source.generation,
+    review: source.review
   });
 
   Object.keys(normalized.cells).forEach((key) => {
@@ -1660,6 +1668,7 @@ function normalizePlan(source) {
   assignMissingZoneIds(normalized);
   requireValidBubbleDiagram(normalized.bubbleDiagram);
   GenerationModel.requireValidState(normalized.generation);
+  ReviewModel.requireValidState(normalized.review, normalized.generation);
 
   return normalized;
 }

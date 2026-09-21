@@ -319,12 +319,15 @@
   function setMode(nextMode) {
     mode = nextMode;
     editorMode = nextMode;
+    if (reviewModeActive) reviewModeActive = false;
+    document.body.classList.remove("review-mode");
     const bubbleMode = mode === "bubble";
     document.body.classList.toggle("bubble-mode", bubbleMode);
     workspace.hidden = !bubbleMode;
     document.getElementById("bubbleModeButton").classList.toggle("is-active", bubbleMode);
     document.getElementById("blockModeButton").classList.toggle("is-active", !bubbleMode);
     document.getElementById("bubbleModeButton").setAttribute("aria-pressed", String(bubbleMode));
+    window.dispatchEvent(new CustomEvent("blockplan-mode-change"));
     document.getElementById("blockModeButton").setAttribute("aria-pressed", String(!bubbleMode));
     if (bubbleMode) {
       if (typeof window.clearBlockPlanInteractionState === "function") window.clearBlockPlanInteractionState();

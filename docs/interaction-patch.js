@@ -389,6 +389,10 @@ function distanceToNearestEmptyCell(x, y, cellSet) {
 }
 
 function onPatchPointerDown(event) {
+  if (reviewModeActive && event.button === 0 && !isSpaceDown) {
+    stopOriginalPointerAction(event);
+    return;
+  }
   if (isUnderlayInteractionActive()) return;
   if (event.button !== 0 || isSpaceDown) return;
 
