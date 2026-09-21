@@ -279,7 +279,6 @@
       edited.relationType = popover.querySelector("[data-testid='connector-relation']").value;
       edited.priority = popover.querySelector("[data-testid='connector-priority']").value;
       commitDiagram(candidate, "Connector updated");
-      closePopover();
     }));
     popover.querySelector(".delete-connector").addEventListener("click", () => {
       const candidate = cloneBubbleDiagram(plan.bubbleDiagram);
@@ -325,7 +324,7 @@
     if (event.target === workspace || event.target === scene || event.target === bubbleLayer || event.target === connectorLayer) createBubble(worldPoint(event.clientX, event.clientY));
   });
   workspace.addEventListener("pointerdown", (event) => {
-    if (event.target.closest(".bubble-node, .connector-popover, .add-bubble-button")) return;
+    if (event.target.closest(".bubble-node, .bubble-wire-hit, .connector-popover, .add-bubble-button")) return;
     selectedBubbleId = null;
     selectedConnectorId = null;
     closePopover();
