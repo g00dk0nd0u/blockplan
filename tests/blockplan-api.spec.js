@@ -144,9 +144,11 @@ test("generation snapshots and isolated variants validate and activate safely", 
     const invalidBubble = api.createVariant({ requirementsSnapshotId: snapshot.requirementsSnapshotId, variantId: "bad2", blockPlan: { ...a.variant.blockPlan, zoneAssignments: { "bed-1": { bubbleId: "missing" } } } });
     const duplicate = api.duplicateVariant({ sourceVariantId: "a", newVariantId: "copy" });
     duplicate.variant.blockPlan.cells["0,0"].zoneId = "leak";
+    const deleteParent = api.deleteVariant("a");
     return {
       snapshot, storedSnapshot: api.getRequirementsSnapshot(snapshot.requirementsSnapshotId), before, afterCreate: api.getPlan(),
       a: api.getVariant("a"), b: api.getVariant("b"), storedCopy: api.getVariant("copy"), invalidZone, invalidBubble,
+      deleteParent, variantsAfterDelete: api.listVariants(),
       validation: api.validateVariantAgainstDiagram("a"), activation: api.activateVariant("a")
     };
   });
@@ -157,6 +159,11 @@ test("generation snapshots and isolated variants validate and activate safely", 
   expect(result.a.blockPlan.cells["0,0"].zoneId).toBe("bed-1");
   expect(result.b.variantId).toBe("b");
   expect(result.storedCopy.blockPlan.cells["0,0"].zoneId).toBe("bed-1");
+  expect(result.storedCopy).toMatchObject({ variantId: "copy", parentVariantId: "a", generationIndex: 3 });
+  expect(result.a).toMatchObject({ variantId: "a", generationIndex: 1 });
+  expect(result.deleteParent.ok).toBe(false);
+  expect(result.deleteParent.error).toContain("children");
+  expect(result.variantsAfterDelete.map((variant) => variant.variantId)).toEqual(["a", "b", "copy"]);
   expect(result.invalidZone.ok).toBe(false);
   expect(result.invalidBubble.ok).toBe(false);
   expect(result.validation.dataErrors).toEqual([]);
@@ -209,6 +216,66 @@ test("variant validation separates hard and soft relationship failures", async (
   });
   expect(validation.hardViolations).toEqual(expect.arrayContaining([expect.objectContaining({ code: "quantity_mismatch", bubbleId: "a" })]));
   expect(validation.softIssues).toEqual([expect.objectContaining({ code: "separate_violation" })]);
+});
+
+test("relationships without an assigned group are not evaluable and do not duplicate violations", async ({ page }) => {
+  await page.goto(appUrl);
+  const validation = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setBubbleDiagram({ version: 1, bubbles: [
+      { id: "a", name: "A", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } },
+      { id: "missing", name: "Missing", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } }
+    ], connectors: [
+      { id: "adj", fromBubbleId: "a", toBubbleId: "missing", relationType: "adjacent", priority: "required" },
+      { id: "sep", fromBubbleId: "a", toBubbleId: "missing", relationType: "separate", priority: "required" }
+    ] });
+    const snapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    api.createVariant({ variantId: "not-evaluable", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: {
+      moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }],
+      cells: { "0,0": { categoryId: "x", zoneId: "a1" } }, zoneAssignments: { a1: { bubbleId: "a" } }
+    } });
+    return api.validateVariantAgainstDiagram("not-evaluable");
+  });
+  expect(validation.hardViolations).toEqual([expect.objectContaining({ code: "quantity_mismatch", bubbleId: "missing" })]);
+  expect(validation.softIssues).toEqual([]);
+  expect(validation.metrics.relationships).toEqual([
+    expect.objectContaining({ connectorId: "adj", evaluationStatus: "not-evaluable", notEvaluableReason: "to-bubble-has-no-assigned-zones" }),
+    expect.objectContaining({ connectorId: "sep", evaluationStatus: "not-evaluable", notEvaluableReason: "to-bubble-has-no-assigned-zones" })
+  ]);
+});
+
+test("setPlan rejects malformed persisted generation atomically", async ({ page }) => {
+  await page.goto(appUrl);
+  const results = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.clear();
+    api.paintRect({ x: 7, y: 7, width: 1, height: 1, categoryId: "office", zoneId: "working" });
+    const before = api.getPlan();
+    const snapshot = {
+      requirementsSnapshotId: "requirements-1", version: 1, createdAt: "2026-01-01T00:00:00.000Z", metadata: {},
+      bubbles: [{ id: "a", name: "A", type: "space", size: { value: 1, unit: "sqm" }, quantity: 1, metadata: {} }], connectors: []
+    };
+    const variant = {
+      variantId: "variant-1", requirementsSnapshotId: "requirements-1", parentVariantId: null, generationIndex: 1,
+      strategy: "", rationale: "", generator: {}, createdAt: "2026-01-01T00:00:00.000Z",
+      blockPlan: { moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }], cells: { "0,0": { categoryId: "x", zoneId: "z" } }, zoneAssignments: { z: { bubbleId: "a" } } }
+    };
+    const attempt = (generation) => api.setPlan({ ...before, generation });
+    const cases = [
+      { version: 1, requirementsSnapshots: [snapshot, snapshot], variants: [] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [variant, variant] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, requirementsSnapshotId: "missing" }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, parentVariantId: "missing" }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, cells: { "0,0": { categoryId: "missing", zoneId: "z" } } } }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, zoneAssignments: { missing: { bubbleId: "a" } } } }] },
+      { version: 1, requirementsSnapshots: [snapshot], variants: [{ ...variant, blockPlan: { ...variant.blockPlan, zoneAssignments: { z: { bubbleId: "missing" } } } }] }
+    ];
+    const rejected = cases.map(attempt);
+    return { rejected, before, after: api.getPlan() };
+  });
+  expect(results.rejected).toHaveLength(7);
+  results.rejected.forEach((result) => expect(result.ok).toBe(false));
+  expect(results.after).toEqual(results.before);
 });
 
 test("Bubble and Connector CRUD round-trips semantic and presentation state", async ({ page }) => {

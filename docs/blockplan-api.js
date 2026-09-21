@@ -113,27 +113,8 @@
     return variant;
   }
 
-  function normalizeVariantBlockPlan(input, snapshot) {
-    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("blockPlan is required");
-    const moduleSizeMm = Number(input.moduleSizeMm);
-    if (!Number.isFinite(moduleSizeMm) || moduleSizeMm <= 0) throw new Error("blockPlan.moduleSizeMm must be a positive number");
-    if (!Array.isArray(input.categories) || !input.categories.length) throw new Error("blockPlan.categories must be a non-empty array");
-    const categories = GenerationModel.clone(input.categories);
-    const categoryIds = new Set(categories.map((category) => category.id));
-    const cells = GenerationModel.clone(input.cells || {});
-    Object.entries(cells).forEach(([key, cell]) => {
-      if (!/^-?\d+,-?\d+$/.test(key)) throw new Error(`Invalid cell key: ${key}`);
-      if (!cell || !categoryIds.has(cell.categoryId)) throw new Error(`Cell ${key} has unknown categoryId`);
-      if (typeof cell.zoneId !== "string" || !cell.zoneId.trim()) throw new Error(`Cell ${key} must have a zoneId`);
-    });
-    const zoneAssignments = GenerationModel.clone(input.zoneAssignments || {});
-    const zoneIds = new Set(GenerationModel.zonesFor(cells).keys());
-    const bubbleIds = new Set(snapshot.bubbles.map((bubble) => bubble.id));
-    Object.entries(zoneAssignments).forEach(([zoneId, assignment]) => {
-      if (!zoneIds.has(zoneId)) throw new Error(`Unknown Zone id: ${zoneId}`);
-      if (!assignment || !bubbleIds.has(assignment.bubbleId)) throw new Error(`Unknown Bubble id: ${assignment && assignment.bubbleId}`);
-    });
-    return { moduleSizeMm, categories, cells, zoneAssignments };
+  function nextGenerationIndex() {
+    return plan.generation.variants.reduce((maximum, variant) => Math.max(maximum, variant.generationIndex), 0) + 1;
   }
 
   const api = {
@@ -435,12 +416,12 @@
           variantId,
           requirementsSnapshotId: snapshot.requirementsSnapshotId,
           parentVariantId: input.parentVariantId || null,
-          generationIndex: input.generationIndex === undefined ? plan.generation.variants.length + 1 : Number(input.generationIndex),
+          generationIndex: input.generationIndex === undefined ? nextGenerationIndex() : Number(input.generationIndex),
           strategy: input.strategy === undefined ? "" : String(input.strategy),
           rationale: input.rationale === undefined ? "" : String(input.rationale),
           generator: GenerationModel.clone(input.generator === undefined ? {} : input.generator),
           createdAt: input.createdAt || new Date().toISOString(),
-          blockPlan: normalizeVariantBlockPlan(input.blockPlan, snapshot)
+          blockPlan: GenerationModel.normalizeBlockPlan(input.blockPlan, snapshot)
         };
         if (!Number.isInteger(variant.generationIndex) || variant.generationIndex < 0) throw new Error("generationIndex must be a non-negative integer");
         plan.generation.variants.push(variant);
@@ -459,6 +440,7 @@
 
     activateVariant(id) {
       try {
+        GenerationModel.requireValidState(plan.generation);
         const variant = findVariant(id);
         if (typeof pushUndoState === "function") pushUndoState();
         plan.moduleSizeMm = variant.blockPlan.moduleSizeMm;
@@ -478,6 +460,7 @@
           ...GenerationModel.clone(input),
           variantId: input.newVariantId,
           parentVariantId: source.variantId,
+          generationIndex: input.generationIndex,
           blockPlan: GenerationModel.clone(source.blockPlan),
           createdAt: undefined
         });
@@ -487,6 +470,9 @@
     deleteVariant(id) {
       try {
         const variant = findVariant(id);
+        if (plan.generation.variants.some((item) => item.parentVariantId === variant.variantId)) {
+          throw new Error(`Cannot delete Variant with children: ${variant.variantId}`);
+        }
         plan.generation.variants = plan.generation.variants.filter((item) => item.variantId !== variant.variantId);
         sync("Variant deleted");
         return success({ variantId: variant.variantId });

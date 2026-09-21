@@ -59,6 +59,62 @@
     return zones;
   }
 
+  function normalizeBlockPlan(input, snapshot) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("blockPlan is required");
+    const moduleSizeMm = Number(input.moduleSizeMm);
+    if (!Number.isFinite(moduleSizeMm) || moduleSizeMm <= 0) throw new Error("blockPlan.moduleSizeMm must be a positive number");
+    if (!Array.isArray(input.categories) || !input.categories.length) throw new Error("blockPlan.categories must be a non-empty array");
+    const categories = clone(input.categories);
+    const categoryIds = new Set();
+    categories.forEach((category) => {
+      if (!category || typeof category.id !== "string" || !category.id.trim()) throw new Error("Every Variant category must have an id");
+      if (categoryIds.has(category.id)) throw new Error(`Duplicate Variant category id: ${category.id}`);
+      categoryIds.add(category.id);
+    });
+    if (!input.cells || typeof input.cells !== "object" || Array.isArray(input.cells)) throw new Error("blockPlan.cells must be an object");
+    const cells = clone(input.cells);
+    Object.entries(cells).forEach(([key, cell]) => {
+      if (!/^-?\d+,-?\d+$/.test(key)) throw new Error(`Invalid cell key: ${key}`);
+      if (!cell || !categoryIds.has(cell.categoryId)) throw new Error(`Cell ${key} has unknown categoryId`);
+      if (typeof cell.zoneId !== "string" || !cell.zoneId.trim()) throw new Error(`Cell ${key} must have a zoneId`);
+    });
+    if (input.zoneAssignments !== undefined && (!input.zoneAssignments || typeof input.zoneAssignments !== "object" || Array.isArray(input.zoneAssignments))) {
+      throw new Error("blockPlan.zoneAssignments must be an object");
+    }
+    const zoneAssignments = clone(input.zoneAssignments || {});
+    const zoneIds = new Set(zonesFor(cells).keys());
+    const bubbleIds = new Set(snapshot.bubbles.map((bubble) => bubble.id));
+    Object.entries(zoneAssignments).forEach(([zoneId, assignment]) => {
+      if (!zoneIds.has(zoneId)) throw new Error(`Unknown Zone id: ${zoneId}`);
+      if (!assignment || !bubbleIds.has(assignment.bubbleId)) throw new Error(`Unknown Bubble id: ${assignment && assignment.bubbleId}`);
+    });
+    return { moduleSizeMm, categories, cells, zoneAssignments };
+  }
+
+  function requireValidState(state) {
+    const snapshotIds = new Set();
+    state.requirementsSnapshots.forEach((snapshot) => {
+      if (!snapshot || typeof snapshot.requirementsSnapshotId !== "string" || !snapshot.requirementsSnapshotId.trim()) throw new Error("Every Requirements Snapshot must have an id");
+      if (snapshotIds.has(snapshot.requirementsSnapshotId)) throw new Error(`Duplicate requirementsSnapshotId: ${snapshot.requirementsSnapshotId}`);
+      snapshotIds.add(snapshot.requirementsSnapshotId);
+      if (!Array.isArray(snapshot.bubbles) || !Array.isArray(snapshot.connectors)) throw new Error(`Invalid Requirements Snapshot: ${snapshot.requirementsSnapshotId}`);
+    });
+    const variantIds = new Set();
+    state.variants.forEach((variant) => {
+      if (!variant || typeof variant.variantId !== "string" || !variant.variantId.trim()) throw new Error("Every Variant must have an id");
+      if (variantIds.has(variant.variantId)) throw new Error(`Duplicate variantId: ${variant.variantId}`);
+      variantIds.add(variant.variantId);
+    });
+    state.variants.forEach((variant) => {
+      const snapshot = state.requirementsSnapshots.find((item) => item.requirementsSnapshotId === variant.requirementsSnapshotId);
+      if (!snapshot) throw new Error(`Unknown requirementsSnapshotId: ${variant.requirementsSnapshotId}`);
+      if (variant.parentVariantId !== null && !variantIds.has(variant.parentVariantId)) throw new Error(`Unknown parentVariantId: ${variant.parentVariantId}`);
+      if (!Number.isInteger(variant.generationIndex) || variant.generationIndex < 0) throw new Error(`Invalid generationIndex for Variant: ${variant.variantId}`);
+      variant.blockPlan = normalizeBlockPlan(variant.blockPlan, snapshot);
+    });
+    return state;
+  }
+
   function point(key) { return key.split(",").map(Number); }
   function minimumDistance(a, b) {
     let minimum = Infinity;
@@ -134,9 +190,12 @@
         minimumGridGap: distance === null ? null : Math.max(0, distance - 1),
         adjacentPairCount,
         fromCoverage: fromZones.length ? adjacentFrom.size / fromZones.length : 0,
-        toCoverage: toZones.length ? adjacentTo.size / toZones.length : 0
+        toCoverage: toZones.length ? adjacentTo.size / toZones.length : 0,
+        evaluationStatus: fromZones.length && toZones.length ? "evaluated" : "not-evaluable",
+        notEvaluableReason: !fromZones.length ? "from-bubble-has-no-assigned-zones" : !toZones.length ? "to-bubble-has-no-assigned-zones" : null
       };
       relationships.push(metric);
+      if (metric.evaluationStatus === "not-evaluable") return;
       const touching = distance === 1;
       const failed = connector.relationType === "adjacent" ? !touching : connector.relationType === "separate" ? touching : false;
       if (failed) {
@@ -149,5 +208,5 @@
     return { dataErrors, hardViolations, softIssues, metrics: { quantities, sizes, relationships, orphans } };
   }
 
-  window.GenerationModel = { clone, emptyState, normalizeState, requirementsFromDiagram, zonesFor, validate };
+  window.GenerationModel = { clone, emptyState, normalizeState, normalizeBlockPlan, requireValidState, requirementsFromDiagram, zonesFor, validate };
 })();

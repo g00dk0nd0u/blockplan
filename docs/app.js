@@ -1659,6 +1659,7 @@ function normalizePlan(source) {
   }));
   assignMissingZoneIds(normalized);
   requireValidBubbleDiagram(normalized.bubbleDiagram);
+  GenerationModel.requireValidState(normalized.generation);
 
   return normalized;
 }
