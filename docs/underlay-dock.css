@@ -2,22 +2,18 @@
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   border: 1px solid var(--line);
   border-radius: 8px;
+  bottom: 14px;
   box-shadow: var(--shadow);
   margin: 0 !important;
   max-width: 520px;
   padding: 8px;
-  position: fixed;
-  right: 354px;
-  top: 68px;
-  width: min(520px, calc(100vw - 390px));
+  position: absolute;
+  right: 14px;
+  width: min(520px, calc(100% - 28px));
   z-index: 7;
 }
 
 .underlay-panel:has(#replaceUnderlayButton:disabled) {
-  display: none;
-}
-
-.underlay-panel > h2 {
   display: none;
 }
 
@@ -57,11 +53,4 @@
 body.review-mode .underlay-panel {
   opacity: .45;
   pointer-events: none;
-}
-
-@media (max-width: 920px) {
-  .underlay-panel {
-    right: 14px;
-    width: min(520px, calc(100vw - 28px));
-  }
 }
