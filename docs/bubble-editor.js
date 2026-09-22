@@ -330,6 +330,7 @@
     window.dispatchEvent(new CustomEvent("blockplan-mode-change"));
     document.getElementById("blockModeButton").setAttribute("aria-pressed", String(!bubbleMode));
     if (bubbleMode) {
+      if (typeof setUnderlaySelected === "function") setUnderlaySelected(false);
       if (typeof window.clearBlockPlanInteractionState === "function") window.clearBlockPlanInteractionState();
       render();
     }

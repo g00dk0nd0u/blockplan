@@ -3,7 +3,15 @@ const path = require("path");
 
 const appUrl = `file://${path.resolve(__dirname, "../docs/index.html")}`;
 
-test("Underlay controls stay out of the sidebar and appear only after linking", async ({ page }) => {
+async function linkSvg(page) {
+  await page.getByTestId("underlay-input").setInputFiles({
+    name: "underlay.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="120"><rect width="200" height="120" fill="#ddd"/></svg>')
+  });
+}
+
+test("Underlay is selected after linking and its contextual controls can be dismissed and restored", async ({ page }) => {
   await page.goto(appUrl);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
@@ -12,20 +20,55 @@ test("Underlay controls stay out of the sidebar and appear only after linking", 
   await expect(dock).toBeHidden();
   await expect(page.locator(".right-sidebar h2").filter({ hasText: "Underlay" })).toBeHidden();
 
-  await page.getByTestId("underlay-input").setInputFiles({
-    name: "underlay.svg",
-    mimeType: "image/svg+xml",
-    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="#ddd"/></svg>')
-  });
+  await linkSvg(page);
 
   await expect(dock).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
   await expect(dock.locator("#underlayStatus")).toContainText("underlay.svg linked");
   await expect(dock.locator("#replaceUnderlayButton")).toBeEnabled();
-  await expect(dock.locator(".help-copy")).toBeHidden();
 
+  await page.keyboard.press("Escape");
+  await expect(dock).toBeHidden();
+  await expect(page.getByTestId("underlay-selection-outline")).toHaveCount(0);
+
+  const canvas = page.getByTestId("planning-canvas");
+  const box = await canvas.boundingBox();
+  await page.mouse.click(box.x + 80, box.y + 80);
+  await expect(dock).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
+});
+
+test("BlockPlan geometry has priority over the Underlay", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.evaluate(() => {
+    const candidate = window.BlockPlanAPI.getPlan();
+    candidate.cells["2,2"] = { categoryId: "office", zoneId: "foreground-zone" };
+    window.BlockPlanAPI.setPlan(candidate);
+  });
+  await linkSvg(page);
+  await page.keyboard.press("Escape");
+  await page.getByTestId("planning-canvas").click({ position: { x: 90, y: 90 } });
+  await expect(page.getByTestId("underlay-dock")).toBeHidden();
+});
+
+test("hidden and deselected Underlay is recoverable from the toolbar", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await linkSvg(page);
+  const dock = page.getByTestId("underlay-dock");
   await dock.locator("#toggleUnderlayButton").click();
   await expect(dock).toBeVisible();
   await expect(dock.locator("#toggleUnderlayButton")).toHaveText("Show");
+  await page.keyboard.press("Escape");
+  await expect(dock).toBeHidden();
+  await expect(page.getByTestId("link-underlay")).toHaveText("Show Underlay");
+  await page.getByTestId("link-underlay").click();
+  await expect(page.getByTestId("link-underlay")).toHaveText("Link Underlay");
+  await expect(dock).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
 });
 
 test("restored Underlay metadata requiring relink does not show the dock", async ({ page }) => {
@@ -143,19 +186,14 @@ test("Lock and Move are explicit, dragging moves the Underlay, Escape exits, and
   await page.goto(appUrl);
   await page.evaluate(() => localStorage.clear());
   await page.reload();
-  await page.getByTestId("underlay-input").setInputFiles({
-    name: "underlay.svg",
-    mimeType: "image/svg+xml",
-    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#ddd"/></svg>')
-  });
+  await linkSvg(page);
 
   const dock = page.getByTestId("underlay-dock");
   const lock = dock.locator("#lockUnderlayButton");
   const move = dock.locator("#moveUnderlayButton");
   await expect(lock).toHaveText("Locked");
   await expect(lock).toHaveAttribute("aria-pressed", "true");
-  await move.click();
-  await expect(page.getByTestId("save-status")).toHaveText("Underlay locked");
+  await expect(move).toBeDisabled();
 
   await lock.click();
   await expect(lock).toHaveText("Unlocked");
@@ -166,10 +204,11 @@ test("Lock and Move are explicit, dragging moves the Underlay, Escape exits, and
   await expect(page.locator("#planningCanvas")).toHaveCSS("cursor", "grab");
 
   await page.keyboard.press("Escape");
-  await expect(move).not.toHaveClass(/is-active/);
-  await move.click();
+  await expect(dock).toBeHidden();
   const canvas = page.locator("#planningCanvas");
   const box = await canvas.boundingBox();
+  await page.mouse.click(box.x + 80, box.y + 80);
+  await move.click();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2 + 60, box.y + box.height / 2 + 35, { steps: 5 });
@@ -181,4 +220,27 @@ test("Lock and Move are explicit, dragging moves the Underlay, Escape exits, and
   await page.keyboard.press("Control+z");
   const undone = await page.evaluate(() => JSON.parse(localStorage.getItem("blockplan.currentPlan.v1")).underlay.transform);
   expect(undone).toMatchObject({ x: 0, y: 0, scale: 1, rotation: 0 });
+});
+
+test("rotated and scaled Underlay uses transformed hit testing", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await linkSvg(page);
+  const dock = page.getByTestId("underlay-dock");
+  await dock.locator("#lockUnderlayButton").click();
+  await dock.locator("#moveUnderlayButton").click();
+  const canvas = page.getByTestId("planning-canvas");
+  const box = await canvas.boundingBox();
+  await page.mouse.move(box.x + 80, box.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 280, box.y + 180);
+  await page.mouse.up();
+  await dock.locator("#scaleDownUnderlayButton").click();
+  await dock.locator("#rotateUnderlayButton").click();
+  await page.keyboard.press("Escape");
+  await page.mouse.click(box.x + 280, box.y + 150);
+  await expect(dock).toBeHidden();
+  await page.mouse.click(box.x + 150, box.y + 150);
+  await expect(dock).toBeVisible();
 });

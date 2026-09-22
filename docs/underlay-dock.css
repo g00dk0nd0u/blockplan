@@ -1,16 +1,5 @@
 .underlay-panel {
-  background: color-mix(in srgb, var(--panel) 94%, transparent);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  bottom: 14px;
-  box-shadow: var(--shadow);
-  margin: 0 !important;
-  max-width: 520px;
-  padding: 8px;
-  position: absolute;
-  right: 14px;
-  width: min(520px, calc(100% - 28px));
-  z-index: 7;
+  margin: 0;
 }
 
 .underlay-panel[hidden] {
@@ -52,11 +41,17 @@
   margin: 0;
 }
 
-.underlay-panel .help-copy {
-  display: none;
-}
-
 body.review-mode .underlay-panel {
   opacity: .45;
   pointer-events: none;
+}
+
+.underlay-selection-outline {
+  border: 2px solid var(--accent);
+  box-sizing: border-box;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform-origin: top left;
 }

@@ -62,6 +62,7 @@ let underlayMoveDraft = null;
 let underlayScalePoints = [];
 let underlayRenderKey = 0;
 let underlayContentReady = false;
+let underlaySelected = false;
 let editorMode = "block";
 let reviewModeActive = false;
 
@@ -257,7 +258,16 @@ function bindEvents() {
   document.getElementById("loadJsonButton").addEventListener("click", () => loadJsonInput.click());
   document.getElementById("exportPngButton").addEventListener("click", exportPng);
   document.getElementById("clearButton").addEventListener("click", clearPlan);
-  if (linkUnderlayButton) linkUnderlayButton.addEventListener("click", () => underlayInput.click());
+  if (linkUnderlayButton) linkUnderlayButton.addEventListener("click", () => {
+    if (plan.underlay && !plan.underlay.visible && !underlaySelected) {
+      plan.underlay.visible = true;
+      underlaySelected = true;
+      persistPlan();
+      updateUi();
+      return;
+    }
+    underlayInput.click();
+  });
   if (replaceUnderlayButton) replaceUnderlayButton.addEventListener("click", () => underlayInput.click());
   if (toggleUnderlayButton) toggleUnderlayButton.addEventListener("click", toggleUnderlayVisibility);
   if (lockUnderlayButton) lockUnderlayButton.addEventListener("click", toggleUnderlayLock);
@@ -461,6 +471,7 @@ function setActiveTool(tool) {
   }
   activeTool = tool;
   cancelUnderlayEditMode(false);
+  if (tool !== "select") setUnderlaySelected(false);
   transformDraft = null;
   renderToolButtons();
   updateCanvasCursor();
@@ -497,6 +508,7 @@ function cancelCurrentOperation() {
   if (underlayEditMode) {
     cancelUnderlayEditMode(true);
   }
+  setUnderlaySelected(false);
   transformDraft = null;
   cutDraft = null;
   paintStrokeZoneId = null;
@@ -527,8 +539,23 @@ function onPointerDown(event) {
     return;
   }
 
-  if (underlayEditMode && handleUnderlayPointerDown(event)) {
-    return;
+  const hitZone = findZoneAtCell(eventToCell(event).x, eventToCell(event).y);
+  if (underlayEditMode) {
+    if (underlayEditMode !== "move" || (!hitZone && isPointInUnderlay(event))) {
+      if (handleUnderlayPointerDown(event)) return;
+    }
+    if (underlayEditMode === "move") {
+      cancelUnderlayEditMode(false);
+      setUnderlaySelected(false);
+    }
+  }
+
+  if (activeTool === "select") {
+    if (hitZone) setUnderlaySelected(false);
+    else if (isPointInUnderlay(event)) {
+      setUnderlaySelected(true);
+      return;
+    } else setUnderlaySelected(false);
   }
 
   if (activeTool === "cut") {
@@ -1907,6 +1934,7 @@ function linkUnderlay(event) {
     type: file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
     needsRelink: false
   });
+  underlaySelected = true;
 
   persistPlan();
   updateUi();
@@ -2003,6 +2031,7 @@ function renderUnderlay() {
   element.addEventListener("load", () => {
     if (element.src !== underlayObjectUrl) return;
     underlayContentReady = true;
+    syncUnderlaySelectionOutline();
     updateUnderlayControls(`${underlay.name || "Underlay"} linked (${underlay.type})`);
   });
   element.addEventListener("error", () => {
@@ -2031,6 +2060,7 @@ async function renderPdfUnderlay(underlay, objectUrl, renderKey) {
     element.style.transform = getUnderlayCssTransform(underlay.transform || defaultUnderlay.transform);
     underlayLayer.replaceChildren(element);
     underlayContentReady = true;
+    syncUnderlaySelectionOutline();
     updateUnderlayControls(`${underlay.name || "Underlay"} linked (pdf)`);
   } catch (error) {
     if (renderKey !== underlayRenderKey) return;
@@ -2052,6 +2082,43 @@ function applyUnderlayTransformToElement() {
   const element = underlayLayer ? underlayLayer.querySelector("[data-underlay-content]") : null;
   if (!element || !plan.underlay) return;
   element.style.transform = getUnderlayCssTransform(plan.underlay.transform || defaultUnderlay.transform);
+  syncUnderlaySelectionOutline();
+}
+
+function setUnderlaySelected(selected) {
+  underlaySelected = Boolean(selected && plan.underlay);
+  if (!underlaySelected) cancelUnderlayEditMode(false);
+  syncUnderlaySelectionOutline();
+  updateUnderlayControls(underlayStatus ? underlayStatus.textContent : "");
+}
+
+function syncUnderlaySelectionOutline() {
+  if (!underlayLayer) return;
+  const oldOutline = underlayLayer.querySelector(".underlay-selection-outline");
+  if (oldOutline) oldOutline.remove();
+  const content = underlayLayer.querySelector("[data-underlay-content]");
+  if (!underlaySelected || !content || !plan.underlay || !plan.underlay.visible) return;
+  const outline = document.createElement("div");
+  outline.className = "underlay-selection-outline";
+  outline.dataset.testid = "underlay-selection-outline";
+  outline.style.width = `${content.offsetWidth}px`;
+  outline.style.height = `${content.offsetHeight}px`;
+  outline.style.transform = getUnderlayCssTransform(plan.underlay.transform || defaultUnderlay.transform);
+  underlayLayer.appendChild(outline);
+}
+
+function isPointInUnderlay(event) {
+  if (!hasActiveUnderlayContent() || !plan.underlay.visible) return false;
+  const element = underlayLayer.querySelector("[data-underlay-content]");
+  if (!element) return false;
+  const world = eventToWorldPoint(event);
+  const transform = plan.underlay.transform || defaultUnderlay.transform;
+  const radians = -(transform.rotation || 0) * Math.PI / 180;
+  const dx = world.x - transform.x;
+  const dy = world.y - transform.y;
+  const localX = (dx * Math.cos(radians) - dy * Math.sin(radians)) / transform.scale;
+  const localY = (dx * Math.sin(radians) + dy * Math.cos(radians)) / transform.scale;
+  return localX >= 0 && localY >= 0 && localX <= element.offsetWidth && localY <= element.offsetHeight;
 }
 
 function applyUnderlayVisualsToElement() {
@@ -2067,7 +2134,7 @@ function getUnderlayCssTransform(transform) {
 
 
 function canEditUnderlay() {
-  return Boolean(hasActiveUnderlayContent() && plan.underlay.visible && !plan.underlay.locked);
+  return Boolean(underlaySelected && hasActiveUnderlayContent() && plan.underlay.visible && !plan.underlay.locked);
 }
 
 function hasActiveUnderlayContent() {
@@ -2255,7 +2322,11 @@ function updateUnderlayControls(message) {
   const underlay = plan.underlay;
   const activeFile = hasActiveUnderlayContent();
   const dock = document.getElementById("underlayDock");
-  if (dock) dock.hidden = !activeFile;
+  if (dock) dock.hidden = !(activeFile && underlaySelected);
+  if (linkUnderlayButton) {
+    const recoverHidden = Boolean(underlay && activeFile && !underlay.visible && !underlaySelected);
+    linkUnderlayButton.textContent = recoverHidden ? "Show Underlay" : "Link Underlay";
+  }
   if (underlayStatus) underlayStatus.textContent = message;
   if (replaceUnderlayButton) replaceUnderlayButton.disabled = !activeFile;
   if (toggleUnderlayButton) {
@@ -2276,7 +2347,7 @@ function updateUnderlayControls(message) {
 
   const canEdit = canEditUnderlay();
   if (moveUnderlayButton) {
-    moveUnderlayButton.disabled = !activeFile || !underlay.visible;
+    moveUnderlayButton.disabled = !canEdit;
     moveUnderlayButton.classList.toggle("is-active", underlayEditMode === "move");
     moveUnderlayButton.setAttribute("aria-pressed", String(underlayEditMode === "move"));
   }
