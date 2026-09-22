@@ -1932,6 +1932,7 @@ function linkUnderlay(event) {
     ...previous,
     name: file.name,
     type: file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf") ? "pdf" : "image",
+    visible: true,
     needsRelink: false
   });
   underlaySelected = true;

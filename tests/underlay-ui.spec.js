@@ -71,6 +71,29 @@ test("hidden and deselected Underlay is recoverable from the toolbar", async ({ 
   await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
 });
 
+test("replacing a hidden Underlay makes the replacement visible and selected", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await linkSvg(page);
+
+  const dock = page.getByTestId("underlay-dock");
+  await dock.locator("#toggleUnderlayButton").click();
+  await expect(dock.locator("#toggleUnderlayButton")).toHaveText("Show");
+
+  await page.getByTestId("underlay-input").setInputFiles({
+    name: "replacement.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="240" height="160"><rect width="240" height="160" fill="#acf"/></svg>')
+  });
+
+  await expect(page.locator('.underlay-layer img[alt="replacement.svg"]')).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
+  await expect(dock).toBeVisible();
+  await expect(dock.locator("#toggleUnderlayButton")).toHaveText("Hide");
+  await expect(page.getByTestId("link-underlay")).toHaveText("Link Underlay");
+});
+
 test("restored Underlay metadata requiring relink does not show the dock", async ({ page }) => {
   await page.goto(appUrl);
   await page.evaluate(() => {
@@ -96,6 +119,47 @@ test("restored Underlay metadata requiring relink does not show the dock", async
   await expect(page.getByTestId("underlay-dock")).toBeHidden();
   await expect(page.getByTestId("link-underlay")).toBeVisible();
   await expect(page.locator(".underlay-message")).toContainText("Relink required");
+});
+
+test("relinking persisted hidden Underlay makes it visible and selected", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem("blockplan.currentPlan.v1", JSON.stringify({
+      version: 1,
+      moduleSizeMm: 3600,
+      categories: [],
+      cells: {},
+      underlay: {
+        name: "hidden-missing.svg",
+        type: "image",
+        visible: false,
+        locked: true,
+        opacity: 0.35,
+        transform: { x: 12, y: 18, scale: 1.25, rotation: 90 },
+        needsRelink: true
+      }
+    }));
+  });
+  await page.reload();
+
+  await page.getByTestId("underlay-input").setInputFiles({
+    name: "relinked.svg",
+    mimeType: "image/svg+xml",
+    buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="180" height="100"><rect width="180" height="100" fill="#fea"/></svg>')
+  });
+
+  await expect(page.locator('.underlay-layer img[alt="relinked.svg"]')).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
+  await expect(page.getByTestId("underlay-dock")).toBeVisible();
+  await expect(page.getByTestId("link-underlay")).toHaveText("Link Underlay");
+  const underlay = await page.evaluate(() => window.BlockPlanAPI.getPlan().underlay);
+  expect(underlay).toMatchObject({
+    visible: true,
+    locked: true,
+    opacity: 0.35,
+    transform: { x: 12, y: 18, scale: 1.25, rotation: 90 }
+  });
 });
 
 test("PDF uses a rendered page instead of native viewer chrome", async ({ page }) => {
