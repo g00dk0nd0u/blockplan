@@ -13,7 +13,7 @@
   z-index: 7;
 }
 
-.underlay-panel:has(#replaceUnderlayButton:disabled) {
+.underlay-panel[hidden] {
   display: none;
 }
 
@@ -40,6 +40,12 @@
 .underlay-panel .secondary-button {
   min-height: 26px;
   padding: 0 7px;
+}
+
+.underlay-panel .secondary-button.is-active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
 }
 
 .underlay-panel .underlay-field {

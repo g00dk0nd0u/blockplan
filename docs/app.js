@@ -60,6 +60,8 @@ let underlayOpacityUndoArmed = false;
 let underlayEditMode = null;
 let underlayMoveDraft = null;
 let underlayScalePoints = [];
+let underlayRenderKey = 0;
+let underlayContentReady = false;
 let editorMode = "block";
 let reviewModeActive = false;
 
@@ -1895,6 +1897,8 @@ function linkUnderlay(event) {
   }
   underlayObjectUrl = URL.createObjectURL(file);
   underlaySessionKey += 1;
+  underlayRenderKey += 1;
+  underlayContentReady = false;
 
   const previous = plan.underlay ? cloneUnderlay(plan.underlay) : cloneUnderlay({});
   plan.underlay = cloneUnderlay({
@@ -1981,22 +1985,63 @@ function renderUnderlay() {
     return;
   }
 
-  const element = underlay.type === "pdf" ? document.createElement("object") : document.createElement("img");
-  element.src = underlayObjectUrl;
   if (underlay.type === "pdf") {
-    element.data = underlayObjectUrl;
-    element.type = "application/pdf";
-    element.textContent = "PDF linked / preview may depend on browser";
-  } else {
-    element.alt = underlay.name || "Linked underlay";
+    renderPdfUnderlay(underlay, underlayObjectUrl);
+    updateUnderlayControls(`${underlay.name || "Underlay"} rendering (pdf)`);
+    return;
   }
+
+  const element = document.createElement("img");
+  element.src = underlayObjectUrl;
+  element.alt = underlay.name || "Linked underlay";
 
   const transform = underlay.transform || defaultUnderlay.transform;
   element.dataset.underlayContent = "true";
   element.style.opacity = String(underlay.opacity);
   element.style.transform = getUnderlayCssTransform(transform);
+  element.addEventListener("load", () => {
+    if (element.src !== underlayObjectUrl) return;
+    underlayContentReady = true;
+    updateUnderlayControls(`${underlay.name || "Underlay"} linked (${underlay.type})`);
+  });
+  element.addEventListener("error", () => {
+    underlayContentReady = false;
+    updateUnderlayControls(`${underlay.name || "Underlay"} could not be rendered`);
+  });
   underlayLayer.appendChild(element);
-  updateUnderlayControls(`${underlay.name || "Underlay"} linked (${underlay.type})`);
+  updateUnderlayControls(`${underlay.name || "Underlay"} rendering (${underlay.type})`);
+}
+
+async function renderPdfUnderlay(underlay, objectUrl) {
+  const renderKey = ++underlayRenderKey;
+  try {
+    if (!window.pdfjsLib) throw new Error("PDF renderer unavailable");
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
+    const pdf = await window.pdfjsLib.getDocument(objectUrl).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 1.5 });
+    const element = document.createElement("canvas");
+    element.width = Math.ceil(viewport.width);
+    element.height = Math.ceil(viewport.height);
+    element.dataset.underlayContent = "true";
+    element.setAttribute("aria-label", `${underlay.name || "PDF underlay"}, page 1`);
+    await page.render({ canvasContext: element.getContext("2d"), viewport }).promise;
+    if (renderKey !== underlayRenderKey || objectUrl !== underlayObjectUrl || plan.underlay !== underlay) return;
+    element.style.opacity = String(underlay.opacity);
+    element.style.transform = getUnderlayCssTransform(underlay.transform || defaultUnderlay.transform);
+    underlayLayer.replaceChildren(element);
+    underlayContentReady = true;
+    updateUnderlayControls(`${underlay.name || "Underlay"} linked (pdf)`);
+  } catch (error) {
+    if (renderKey !== underlayRenderKey) return;
+    const message = document.createElement("div");
+    message.className = "underlay-message";
+    message.textContent = `${underlay.name || "PDF"}: Unable to render page 1`;
+    underlayLayer.replaceChildren(message);
+    underlayContentReady = false;
+    updateUnderlayControls(`${underlay.name || "Underlay"} could not be rendered`);
+    console.error("Could not render PDF underlay", error);
+  }
 }
 
 function syncUnderlayViewTransform() {
@@ -2022,7 +2067,11 @@ function getUnderlayCssTransform(transform) {
 
 
 function canEditUnderlay() {
-  return Boolean(plan.underlay && plan.underlay.visible && !plan.underlay.locked && !plan.underlay.needsRelink);
+  return Boolean(hasActiveUnderlayContent() && plan.underlay.visible && !plan.underlay.locked);
+}
+
+function hasActiveUnderlayContent() {
+  return Boolean(plan.underlay && !plan.underlay.needsRelink && underlayObjectUrl && underlayContentReady);
 }
 
 function getCanvasCenterWorldPoint() {
@@ -2046,6 +2095,10 @@ function applyUnderlayScaleAroundWorldPoint(factor, anchorWorld) {
 }
 
 function startUnderlayMoveMode() {
+  if (underlayEditMode === "move") {
+    cancelUnderlayEditMode(true);
+    return;
+  }
   if (!canEditUnderlay()) {
     showSaveStatus(plan.underlay && plan.underlay.locked ? "Underlay locked" : "Underlay unavailable");
     return;
@@ -2054,6 +2107,7 @@ function startUnderlayMoveMode() {
   underlayScalePoints = [];
   showSaveStatus("Underlay move mode: drag on canvas");
   updateCanvasCursor();
+  updateUnderlayControls(`${plan.underlay.name || "Underlay"} linked (${plan.underlay.type})`);
 }
 
 function startUnderlayScaleByPointsMode() {
@@ -2110,6 +2164,7 @@ function finishUnderlayMove() {
   persistPlan();
   showSaveStatus("Underlay moved");
   updateCanvasCursor();
+  updateUnderlayControls(`${plan.underlay.name || "Underlay"} linked (${plan.underlay.type})`);
 }
 
 function scaleUnderlayByButton(factor) {
@@ -2193,29 +2248,39 @@ function cancelUnderlayEditMode(showStatus) {
   underlayScalePoints = [];
   if (showStatus) showSaveStatus("Underlay edit canceled");
   updateCanvasCursor();
+  if (plan.underlay) updateUnderlayControls(underlayStatus.textContent);
 }
 
 function updateUnderlayControls(message) {
   const underlay = plan.underlay;
+  const activeFile = hasActiveUnderlayContent();
+  const dock = document.getElementById("underlayDock");
+  if (dock) dock.hidden = !activeFile;
   if (underlayStatus) underlayStatus.textContent = message;
-  if (replaceUnderlayButton) replaceUnderlayButton.disabled = !underlay;
+  if (replaceUnderlayButton) replaceUnderlayButton.disabled = !activeFile;
   if (toggleUnderlayButton) {
-    toggleUnderlayButton.disabled = !underlay;
+    toggleUnderlayButton.disabled = !activeFile;
     toggleUnderlayButton.textContent = underlay && underlay.visible ? "Hide" : "Show";
   }
   if (lockUnderlayButton) {
-    lockUnderlayButton.disabled = !underlay;
-    lockUnderlayButton.textContent = underlay && underlay.locked ? "Unlock" : "Lock";
+    lockUnderlayButton.disabled = !activeFile;
+    lockUnderlayButton.textContent = underlay && underlay.locked ? "Locked" : "Unlocked";
+    lockUnderlayButton.classList.toggle("is-active", Boolean(underlay && underlay.locked));
+    lockUnderlayButton.setAttribute("aria-pressed", String(Boolean(underlay && underlay.locked)));
   }
   if (underlayOpacity) {
-    underlayOpacity.disabled = !underlay;
+    underlayOpacity.disabled = !activeFile;
     underlayOpacity.value = String(Math.round((underlay ? underlay.opacity : defaultUnderlay.opacity) * 100));
   }
   if (underlayOpacityValue) underlayOpacityValue.textContent = `${underlayOpacity ? underlayOpacity.value : 50}%`;
 
   const canEdit = canEditUnderlay();
+  if (moveUnderlayButton) {
+    moveUnderlayButton.disabled = !activeFile || !underlay.visible;
+    moveUnderlayButton.classList.toggle("is-active", underlayEditMode === "move");
+    moveUnderlayButton.setAttribute("aria-pressed", String(underlayEditMode === "move"));
+  }
   [
-    moveUnderlayButton,
     scaleDownUnderlayButton,
     scaleUpUnderlayButton,
     rotateUnderlayButton,

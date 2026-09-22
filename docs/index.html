@@ -73,16 +73,16 @@
           <span id="cellStatus">Cell 0, 0</span>
         </div>
         <section id="reviewDock" data-testid="review-dock" class="review-dock" aria-label="Variant review" hidden></section>
-        <section id="underlayDock" data-testid="underlay-dock" class="underlay-panel" aria-label="Underlay controls">
+        <section id="underlayDock" data-testid="underlay-dock" class="underlay-panel" aria-label="Underlay controls" hidden>
           <div class="underlay-controls">
             <p id="underlayStatus" class="underlay-status">No underlay linked</p>
             <div class="underlay-action-row">
               <button id="replaceUnderlayButton" type="button" class="secondary-button" disabled>Replace</button>
               <button id="toggleUnderlayButton" type="button" class="secondary-button" disabled>Hide</button>
-              <button id="lockUnderlayButton" type="button" class="secondary-button" disabled>Unlock</button>
+              <button id="lockUnderlayButton" type="button" class="secondary-button" aria-pressed="true" disabled>Locked</button>
             </div>
             <div class="underlay-action-row" aria-label="Underlay alignment tools">
-              <button id="moveUnderlayButton" type="button" class="secondary-button" disabled>Move</button>
+              <button id="moveUnderlayButton" type="button" class="secondary-button" aria-pressed="false" disabled>Move</button>
               <button id="scaleDownUnderlayButton" type="button" class="secondary-button" disabled>Scale -</button>
               <button id="scaleUpUnderlayButton" type="button" class="secondary-button" disabled>Scale +</button>
               <button id="rotateUnderlayButton" type="button" class="secondary-button" disabled>Rotate 90°</button>
@@ -152,6 +152,7 @@
 
     <script src="generation-model.js"></script>
     <script src="review-model.js"></script>
+    <script src="vendor/pdfjs/pdf.min.js"></script>
     <script src="app.js"></script>
     <script src="review-guard.js"></script>
     <script src="interaction-patch.js"></script>
