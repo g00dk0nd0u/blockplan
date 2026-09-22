@@ -925,6 +925,8 @@ function toggleZoneMultiSelection(event) {
     return;
   }
 
+  if (typeof setUnderlaySelected === "function") setUnderlaySelected(false);
+
   if (patchSelectedZoneIds.has(zone.id)) {
     patchSelectedZoneIds.delete(zone.id);
   } else {
