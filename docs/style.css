@@ -728,6 +728,7 @@ body.review-mode .tool-actions, body.review-mode .left-sidebar, body.review-mode
 }
 
 .underlay-layer > img,
+.underlay-layer > canvas,
 .underlay-layer > object,
 .underlay-layer > iframe {
   border: 0;
@@ -738,6 +739,11 @@ body.review-mode .tool-actions, body.review-mode .left-sidebar, body.review-mode
   top: 0;
   transform-origin: top left;
   width: 100%;
+}
+
+.underlay-layer > canvas {
+  background: white;
+  height: auto;
 }
 
 .underlay-message {
