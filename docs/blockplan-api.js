@@ -124,6 +124,32 @@
     return plan.generation.variants.reduce((maximum, variant) => Math.max(maximum, variant.generationIndex), 0) + 1;
   }
 
+  function requireCompleteGeneratedBlockPlan(input, snapshot) {
+    const allowed = new Set(["moduleSizeMm", "categories", "cells", "zoneAssignments"]);
+    Object.keys(input || {}).forEach((key) => {
+      if (!allowed.has(key)) throw new Error(`Unsupported blockPlan field: ${key}`);
+    });
+    const blockPlan = GenerationModel.normalizeBlockPlan(input, snapshot);
+    const zones = GenerationModel.zonesFor(blockPlan.cells);
+    zones.forEach((keys, zoneId) => {
+      if (!Object.prototype.hasOwnProperty.call(blockPlan.zoneAssignments, zoneId)) {
+        throw new Error(`Zone ${zoneId} must have a Bubble assignment`);
+      }
+      const remaining = new Set(keys);
+      const stack = [keys[0]];
+      remaining.delete(keys[0]);
+      while (stack.length) {
+        const [x, y] = stack.pop().split(",").map(Number);
+        [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].forEach(([nx, ny]) => {
+          const key = `${nx},${ny}`;
+          if (remaining.delete(key)) stack.push(key);
+        });
+      }
+      if (remaining.size) throw new Error(`Zone ${zoneId} must be contiguous`);
+    });
+    return blockPlan;
+  }
+
   const api = {
     version: 1,
 
@@ -435,6 +461,52 @@
         plan.generation.variants.push(variant);
         sync("Variant created");
         return success({ variant: GenerationModel.clone(variant) });
+      } catch (error) { return failure(error); }
+    },
+
+    createVariants(input) {
+      try {
+        if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Variant submission must be an object");
+        const snapshot = findSnapshot(input.requirementsSnapshotId);
+        const parentVariantId = input.parentVariantId == null ? null : String(input.parentVariantId);
+        if (parentVariantId !== null) {
+          const parent = findVariant(parentVariantId);
+          if (parent.requirementsSnapshotId !== snapshot.requirementsSnapshotId) throw new Error("Parent Variant must use the submitted Requirements Snapshot");
+        }
+        if (!Array.isArray(input.candidates) || !input.candidates.length) throw new Error("candidates must be a non-empty array");
+
+        const stagedState = GenerationModel.normalizeState(plan.generation);
+        let generationIndex = nextGenerationIndex();
+        const variants = input.candidates.map((candidate, index) => {
+          if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) throw new Error(`Candidate ${index + 1} must be an object`);
+          const allowedCandidateFields = new Set(["strategy", "rationale", "generator", "blockPlan"]);
+          Object.keys(candidate).forEach((key) => {
+            if (!allowedCandidateFields.has(key)) throw new Error(`Unsupported Candidate ${index + 1} field: ${key}`);
+          });
+          if (typeof candidate.strategy !== "string" || !candidate.strategy.trim()) throw new Error(`Candidate ${index + 1} strategy is required`);
+          if (typeof candidate.rationale !== "string" || !candidate.rationale.trim()) throw new Error(`Candidate ${index + 1} rationale is required`);
+          if (candidate.generator !== undefined && (!candidate.generator || typeof candidate.generator !== "object" || Array.isArray(candidate.generator))) {
+            throw new Error(`Candidate ${index + 1} generator must be an object`);
+          }
+          const variantId = nextGenerationId("variant", stagedState.variants, "variantId");
+          const variant = {
+            variantId,
+            requirementsSnapshotId: snapshot.requirementsSnapshotId,
+            parentVariantId,
+            generationIndex: generationIndex++,
+            strategy: candidate.strategy,
+            rationale: candidate.rationale,
+            generator: GenerationModel.clone(candidate.generator || {}),
+            createdAt: new Date().toISOString(),
+            blockPlan: requireCompleteGeneratedBlockPlan(candidate.blockPlan, snapshot)
+          };
+          stagedState.variants.push(variant);
+          return variant;
+        });
+        GenerationModel.requireValidState(stagedState);
+        plan.generation = stagedState;
+        sync(`${variants.length} variants ready`);
+        return success({ variants: GenerationModel.clone(variants) });
       } catch (error) { return failure(error); }
     },
 

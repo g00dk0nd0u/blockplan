@@ -10,6 +10,7 @@ test("BlockPlan hidden API can create and validate a plan", async ({ page }) => 
 
   const apiVersion = await page.evaluate(() => window.BlockPlanAPI && window.BlockPlanAPI.version);
   expect(apiVersion).toBe(1);
+  expect(await page.evaluate(() => typeof window.BlockPlanAPI.createVariants)).toBe("function");
 
   const summary = await page.evaluate(() => {
     const api = window.BlockPlanAPI;

@@ -176,6 +176,14 @@ body.bubble-mode #linkUnderlayButton { display: none; }
 .add-bubble-button [role="tooltip"] { background: #252525; border-radius: 5px; bottom: calc(100% + 9px); color: #fff; font-size: 11px; opacity: 0; padding: 6px 8px; pointer-events: none; position: absolute; right: 0; transform: translateY(3px); transition: opacity .14s ease, transform .14s ease; white-space: nowrap; }
 .add-bubble-button:hover [role="tooltip"], .add-bubble-button:focus [role="tooltip"] { opacity: 1; transform: translateY(0); }
 .bubble-zoom-status { bottom: 19px; color: var(--muted); font-size: 11px; left: 20px; position: absolute; }
+.generation-action { align-items: center; display: flex; gap: 9px; position: absolute; right: 18px; top: 16px; z-index: 4; }
+.generation-action button { background: var(--accent); border-color: var(--accent); color: #fff; }
+.generation-action button:hover { background: var(--accent-hover); }
+.generation-action span { background: rgba(247, 246, 244, .92); border-radius: 3px; color: var(--muted); font-size: 11px; padding: 4px 6px; }
+.generation-action span:empty { display: none; }
+.agent-io-panel { background: #20282b; border: 1px solid #445156; bottom: 14px; color: #eaf0f2; font-size: 11px; max-height: 210px; overflow: auto; padding: 9px; position: fixed; right: 14px; width: 330px; z-index: 20; }
+.agent-io-panel > span { color: #aebdc2; margin-left: 6px; }
+.agent-io-panel pre { font: 10px/1.35 ui-monospace, monospace; margin: 7px 0 0; white-space: pre-wrap; }
 .connector-popover { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: var(--shadow); padding: 10px; position: absolute; width: 190px; z-index: 5; }
 .connector-popover label { color: var(--muted); display: block; font-size: 11px; margin-bottom: 8px; }
 .connector-popover select { display: block; margin-top: 3px; width: 100%; }
