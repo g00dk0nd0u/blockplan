@@ -53,6 +53,37 @@ test("BlockPlan geometry has priority over the Underlay", async ({ page }) => {
   await expect(page.getByTestId("underlay-dock")).toBeHidden();
 });
 
+test("selecting the Underlay clears single and multi-selected Zones", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await page.evaluate(() => {
+    const candidate = window.BlockPlanAPI.getPlan();
+    candidate.cells["2,2"] = { categoryId: "office", zoneId: "zone-a" };
+    candidate.cells["4,2"] = { categoryId: "meeting", zoneId: "zone-b" };
+    window.BlockPlanAPI.setPlan(candidate);
+  });
+  await linkSvg(page);
+  await page.keyboard.press("Escape");
+
+  const canvas = page.getByTestId("planning-canvas");
+  await canvas.click({ position: { x: 90, y: 90 } });
+  await expect.poll(() => page.evaluate(() => [...window.getCurrentSelectedZoneIds()])).toEqual(["zone-a"]);
+  await canvas.click({ position: { x: 300, y: 300 } });
+  await expect(page.getByTestId("underlay-dock")).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => [...window.getCurrentSelectedZoneIds()])).toEqual([]);
+
+  await page.keyboard.press("Escape");
+  await canvas.click({ position: { x: 90, y: 90 } });
+  await canvas.click({ position: { x: 162, y: 90 }, modifiers: ["Shift"] });
+  await expect.poll(() => page.evaluate(() => [...window.getCurrentSelectedZoneIds()].sort())).toEqual(["zone-a", "zone-b"]);
+  await canvas.click({ position: { x: 300, y: 300 } });
+  await expect(page.getByTestId("underlay-dock")).toBeVisible();
+  await expect(page.getByTestId("underlay-selection-outline")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => [...window.getCurrentSelectedZoneIds()])).toEqual([]);
+});
+
 test("hidden and deselected Underlay is recoverable from the toolbar", async ({ page }) => {
   await page.goto(appUrl);
   await page.evaluate(() => localStorage.clear());

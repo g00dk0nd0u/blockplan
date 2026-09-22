@@ -261,7 +261,7 @@ function bindEvents() {
   if (linkUnderlayButton) linkUnderlayButton.addEventListener("click", () => {
     if (plan.underlay && !plan.underlay.visible && !underlaySelected) {
       plan.underlay.visible = true;
-      underlaySelected = true;
+      selectUnderlay();
       persistPlan();
       updateUi();
       return;
@@ -553,7 +553,7 @@ function onPointerDown(event) {
   if (activeTool === "select") {
     if (hitZone) setUnderlaySelected(false);
     else if (isPointInUnderlay(event)) {
-      setUnderlaySelected(true);
+      selectUnderlay();
       return;
     } else setUnderlaySelected(false);
   }
@@ -1935,7 +1935,7 @@ function linkUnderlay(event) {
     visible: true,
     needsRelink: false
   });
-  underlaySelected = true;
+  selectUnderlay();
 
   persistPlan();
   updateUi();
@@ -2091,6 +2091,17 @@ function setUnderlaySelected(selected) {
   if (!underlaySelected) cancelUnderlayEditMode(false);
   syncUnderlaySelectionOutline();
   updateUnderlayControls(underlayStatus ? underlayStatus.textContent : "");
+}
+
+function selectUnderlay() {
+  if (typeof clearTransformSelectionAfterCommit === "function") {
+    clearTransformSelectionAfterCommit();
+  } else {
+    selectedZoneSignature = null;
+  }
+  transformDraft = null;
+  setUnderlaySelected(true);
+  draw();
 }
 
 function syncUnderlaySelectionOutline() {
