@@ -1963,6 +1963,7 @@ function commitUnderlayOpacityChange() {
 
 function renderUnderlay() {
   if (!underlayLayer) return;
+  const renderKey = ++underlayRenderKey;
   underlayLayer.innerHTML = "";
 
   const underlay = plan.underlay;
@@ -1986,7 +1987,7 @@ function renderUnderlay() {
   }
 
   if (underlay.type === "pdf") {
-    renderPdfUnderlay(underlay, underlayObjectUrl);
+    renderPdfUnderlay(underlay, underlayObjectUrl, renderKey);
     updateUnderlayControls(`${underlay.name || "Underlay"} rendering (pdf)`);
     return;
   }
@@ -2012,8 +2013,7 @@ function renderUnderlay() {
   updateUnderlayControls(`${underlay.name || "Underlay"} rendering (${underlay.type})`);
 }
 
-async function renderPdfUnderlay(underlay, objectUrl) {
-  const renderKey = ++underlayRenderKey;
+async function renderPdfUnderlay(underlay, objectUrl, renderKey) {
   try {
     if (!window.pdfjsLib) throw new Error("PDF renderer unavailable");
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = "vendor/pdfjs/pdf.worker.min.js";
@@ -2026,7 +2026,7 @@ async function renderPdfUnderlay(underlay, objectUrl) {
     element.dataset.underlayContent = "true";
     element.setAttribute("aria-label", `${underlay.name || "PDF underlay"}, page 1`);
     await page.render({ canvasContext: element.getContext("2d"), viewport }).promise;
-    if (renderKey !== underlayRenderKey || objectUrl !== underlayObjectUrl || plan.underlay !== underlay) return;
+    if (renderKey !== underlayRenderKey || objectUrl !== underlayObjectUrl || plan.underlay !== underlay || !underlay.visible) return;
     element.style.opacity = String(underlay.opacity);
     element.style.transform = getUnderlayCssTransform(underlay.transform || defaultUnderlay.transform);
     underlayLayer.replaceChildren(element);

@@ -74,6 +74,71 @@ test("PDF uses a rendered page instead of native viewer chrome", async ({ page }
   await expect(dock.locator("#underlayStatus")).toContainText("linked (pdf)");
 });
 
+test("hiding an Underlay invalidates an in-flight PDF render", async ({ page }) => {
+  await page.goto(appUrl);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  const pdf = await page.pdf({ width: "4in", height: "4in" });
+  await page.evaluate(() => {
+    const pdfjsLib = window.pdfjsLib;
+    const getDocument = pdfjsLib.getDocument.bind(pdfjsLib);
+    const delayedGetDocument = (...args) => {
+      const task = getDocument(...args);
+      const promise = task.promise.then((document) => new Promise((resolve) => {
+        window.releasePdfDocument = () => {
+          const getPage = document.getPage.bind(document);
+          document.getPage = async (...pageArgs) => {
+            const pdfPage = await getPage(...pageArgs);
+            const render = pdfPage.render.bind(pdfPage);
+            pdfPage.render = (...renderArgs) => {
+              const renderTask = render(...renderArgs);
+              const renderPromise = renderTask.promise.then((result) => {
+                window.pdfRenderSettled = true;
+                return result;
+              });
+              return new Proxy(renderTask, {
+                get(target, property) {
+                  if (property === "promise") return renderPromise;
+                  const value = target[property];
+                  return typeof value === "function" ? value.bind(target) : value;
+                }
+              });
+            };
+            return pdfPage;
+          };
+          resolve(document);
+        };
+      }));
+      return new Proxy(task, {
+        get(target, property) {
+          if (property === "promise") return promise;
+          const value = target[property];
+          return typeof value === "function" ? value.bind(target) : value;
+        }
+      });
+    };
+    window.pdfjsLib = new Proxy(pdfjsLib, {
+      get(target, property) {
+        if (property === "getDocument") return delayedGetDocument;
+        return target[property];
+      }
+    });
+  });
+
+  await page.getByTestId("underlay-input").setInputFiles({
+    name: "slow-plan.pdf",
+    mimeType: "application/pdf",
+    buffer: pdf
+  });
+  await expect.poll(() => page.evaluate(() => typeof window.releasePdfDocument)).toBe("function");
+  await page.evaluate(() => toggleUnderlayVisibility());
+  await page.evaluate(() => window.releasePdfDocument());
+  await expect.poll(() => page.evaluate(() => window.pdfRenderSettled)).toBe(true);
+
+  await expect(page.locator(".underlay-layer canvas[data-underlay-content]")).toHaveCount(0);
+  await expect(page.locator("#toggleUnderlayButton")).toHaveText("Show");
+});
+
 test("Lock and Move are explicit, dragging moves the Underlay, Escape exits, and Undo restores it", async ({ page }) => {
   await page.goto(appUrl);
   await page.evaluate(() => localStorage.clear());
