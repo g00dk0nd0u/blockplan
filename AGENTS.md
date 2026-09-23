@@ -31,6 +31,15 @@
 - After API mutations, keep canvas, dashboard, localStorage, and save status in sync.
 - API methods must not trigger `confirm()`, `prompt()`, file input clicks, or downloads.
 
+## Agent IO
+
+- `window.BlockPlanAgent` is a provider-neutral, MCP-shaped browser adapter over `window.BlockPlanAPI`; it is never a second source of truth or an embedded LLM client.
+- `?agent=1` shows the small Agent IO discovery surface. Normal app use keeps that debug surface hidden.
+- Keep AI providers, credentials, and API secrets outside the browser application.
+- Generation requests contain semantic Bubble requirements and Connectors, never Bubble presentation `position`, Underlay data, or screenshots.
+- Multi-Variant agent submission is atomic: validate every candidate and lineage reference before persisting any Variant.
+- Variant validation remains derived on demand and must not be stored in generation records.
+
 ## API Response Contract
 
 - New or changed API methods should use a stable response contract.

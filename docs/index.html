@@ -76,6 +76,10 @@
       </main>
 
       <main id="bubbleWorkspace" data-testid="bubble-workspace" class="bubble-workspace" aria-label="Bubble Diagram workspace" hidden>
+        <div class="generation-action">
+          <button id="generateBlockPlansButton" data-testid="generate-block-plans" type="button">Generate Block Plans</button>
+          <span id="generationReadyStatus" data-testid="generation-ready-status" aria-live="polite"></span>
+        </div>
         <div id="bubbleScene" class="bubble-scene">
           <svg id="bubbleConnectorLayer" class="bubble-connectors" aria-label="Bubble connections"></svg>
           <div id="bubbleLayer" class="bubble-layer"></div>
@@ -84,6 +88,12 @@
         <div id="bubbleZoomStatus" class="bubble-zoom-status">100%</div>
         <div id="connectorPopover" data-testid="connector-popover" class="connector-popover" hidden></div>
       </main>
+
+      <section id="agentIoPanel" data-testid="agent-io-panel" class="agent-io-panel" aria-label="Agent IO" hidden>
+        <strong>Agent IO</strong>
+        <span>MCP-shaped browser adapter</span>
+        <pre id="agentIoDiscovery" data-testid="agent-io-discovery"></pre>
+      </section>
 
       <aside class="right-sidebar panel">
         <section>
@@ -162,5 +172,6 @@
     <script src="review-ui.js"></script>
     <script src="design-memory.js"></script>
     <script src="design-memory-guard.js"></script>
+    <script src="agent-io.js"></script>
   </body>
 </html>
