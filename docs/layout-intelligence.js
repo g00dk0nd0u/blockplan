@@ -76,6 +76,20 @@
 
   function requireValidRulePack(source) { return normalizeRulePack(source); }
 
+  function normalizeGenerationFrame(source) {
+    if (source == null) return null;
+    if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("GenerationFrame must be an object");
+    const rootFields = new Set(["version", "bounds"]);
+    Object.keys(source).forEach((key) => { if (!rootFields.has(key)) throw new Error(`GenerationFrame has unsupported field: ${key}`); });
+    if (source.version !== 1) throw new Error("GenerationFrame version must be 1");
+    if (!source.bounds || typeof source.bounds !== "object" || Array.isArray(source.bounds)) throw new Error("GenerationFrame bounds must be an object");
+    const boundsFields = new Set(["x", "y", "width", "height"]);
+    Object.keys(source.bounds).forEach((key) => { if (!boundsFields.has(key)) throw new Error(`GenerationFrame bounds has unsupported field: ${key}`); });
+    ["x", "y", "width", "height"].forEach((key) => finite(source.bounds[key], `GenerationFrame bounds.${key}`, { integer: true }));
+    if (source.bounds.width <= 0 || source.bounds.height <= 0) throw new Error("GenerationFrame bounds width and height must be positive integers");
+    return clone({ version: 1, bounds: source.bounds });
+  }
+
   function requireValidGenerationContext(source) {
     if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("generationContext must be an object");
     if (source.version !== 1) throw new Error("generationContext.version must be 1");
@@ -92,6 +106,7 @@
       if (typeof category.name !== "string" || !category.name.trim()) throw new Error(`${path}.name must be a non-empty string`);
       if (typeof category.color !== "string" || !/^#[0-9a-f]{6}$/i.test(category.color)) throw new Error(`${path}.color must be a #RRGGBB color`);
     });
+    if (source.generationFrame !== undefined) normalizeGenerationFrame(source.generationFrame);
     return source;
   }
 
@@ -104,6 +119,7 @@
       requirementsSnapshotId: requirementsSnapshot.requirementsSnapshotId,
       moduleSizeMm: generationContext.moduleSizeMm,
       categories: generationContext.categories || [],
+      ...(generationContext.generationFrame === undefined ? {} : { generationFrame: normalizeGenerationFrame(generationContext.generationFrame) }),
       spaces: (requirementsSnapshot.bubbles || []).map((bubble) => ({ bubbleId: bubble.id, name: bubble.name, type: bubble.type, targetSize: bubble.size, quantity: bubble.quantity, metadata: bubble.metadata || {} })),
       relationships: (requirementsSnapshot.connectors || []).map((connector) => ({ connectorId: connector.id, fromBubbleId: connector.fromBubbleId, toBubbleId: connector.toBubbleId, relationType: connector.relationType, priority: connector.priority, direction: connector.direction, metadata: connector.metadata || {} })),
       relevantMemory: Array.isArray(relevantMemory) ? relevantMemory : [],
@@ -178,5 +194,5 @@
     return clone({ version: 1, variantId: variant.variantId, requirementsSnapshotId: requirementsSnapshot.requirementsSnapshotId, dataErrors: validation.dataErrors, hardViolations: [...validation.hardViolations, ...requiredFindings], softIssues: [...validation.softIssues, ...preferredFindings], metrics: { validation: validation.metrics, zones: zoneMetrics, bubbles: bubbleMetrics, relationships: validation.metrics.relationships }, qualityDimensions: { areaFit: bubbleMetrics.map(({ bubbleId, targetAreaSqm, actualAreasSqm, relativeAreaDeviations }) => ({ bubbleId, targetAreaSqm, actualAreasSqm, relativeAreaDeviations })), shape: zoneMetrics, relationships: validation.metrics.relationships, repeatability: bubbleMetrics.map(({ bubbleId, repeatability }) => ({ bubbleId, ...repeatability })) }, criticFindings });
   }
 
-  window.LayoutIntelligence = { normalizeRulePack, requireValidRulePack, buildLayoutProblem, evaluateVariant, shapeSignature };
+  window.LayoutIntelligence = { normalizeRulePack, requireValidRulePack, normalizeGenerationFrame, buildLayoutProblem, evaluateVariant, shapeSignature };
 })();

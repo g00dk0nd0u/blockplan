@@ -1,4 +1,5 @@
 const dataCenter = {
+  generationFrame: { version: 1, bounds: { x: 0, y: 0, width: 16, height: 12 } },
   bubbles: [
     { id: "hall", name: "Data Hall", type: "compute", size: { value: 4, unit: "sqm" }, quantity: 2, position: { x: 10, y: 20 } },
     { id: "electrical", name: "Electrical", type: "power", size: { value: 2, unit: "sqm" }, quantity: 1, position: { x: 30, y: 20 } },
@@ -18,6 +19,7 @@ const dataCenter = {
 };
 
 const office = {
+  generationFrame: { version: 1, bounds: { x: 0, y: 0, width: 12, height: 10 } },
   bubbles: [
     { id: "work", name: "Work Area", type: "work", size: { value: 4, unit: "sqm" }, quantity: 1, position: { x: 10, y: 20 } },
     { id: "meeting", name: "Meeting", type: "collaboration", size: { value: 2, unit: "sqm" }, quantity: 1, position: { x: 30, y: 20 } },

@@ -25,6 +25,9 @@
 - Layout Intelligence is stateless and derived; Variant evaluations are never persisted.
 - Core intelligence must not branch by building type. Domain Profiles and Rule Packs are data.
 - Data Center is a benchmark/profile, not core schema, and evaluation must not produce an overall design score or automatic ranking.
+- LayoutGenerator is stateless and derived: topology precedes geometry, core logic has no building-type branches, and hard constraints are feasibility gates.
+- Generation search is deterministic and bounded, uses no scalar overall design score, and does not persist candidates until the existing Variant submission path is explicitly called.
+- GenerationFrame is frozen semantic generation context; never infer it from Underlay or current working geometry.
 
 ## Hidden Browser API
 

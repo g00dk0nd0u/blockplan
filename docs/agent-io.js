@@ -96,7 +96,8 @@
             version: 1,
             moduleSizeMm: working.moduleSizeMm,
             categories: working.categories,
-            ...(options.rulePack === undefined ? {} : { rulePack: LayoutIntelligence.requireValidRulePack(options.rulePack) })
+            ...(options.rulePack === undefined ? {} : { rulePack: LayoutIntelligence.requireValidRulePack(options.rulePack) }),
+            ...(options.generationFrame === undefined ? {} : { generationFrame: LayoutIntelligence.normalizeGenerationFrame(options.generationFrame) })
           })
         }
       });
@@ -146,6 +147,13 @@
     return result && result.ok === false ? fail("LAYOUT_EVALUATION_FAILED", result.error) : { ok: true, variantId, evaluation: clone(result) };
   }
 
+  function generateLayoutCandidates(options = {}) {
+    const id = options && options.requirementsSnapshotId;
+    if (!id) return fail("MISSING_SNAPSHOT_ID", "requirementsSnapshotId is required");
+    const result = api.generateLayoutCandidates(id, { ...options, requirementsSnapshotId: undefined });
+    return result && result.ok === false ? fail("LAYOUT_GENERATION_FAILED", result.error) : { ok: true, ...clone(result) };
+  }
+
   function activateVariant(options = {}) {
     const variantId = typeof options === "string" ? options : options.variantId;
     if (!variantId) return fail("MISSING_VARIANT_ID", "variantId is required");
@@ -186,6 +194,7 @@
     ["get_variant_validation", "Derive validation for a Variant without persisting it."],
     ["get_layout_problem", "Compile a stable semantic LayoutProblem from an immutable Requirements Snapshot."],
     ["evaluate_layout_variant", "Derive geometry metrics and generic Rule Pack findings for a Variant."],
+    ["generate_layout_candidates", "Generate deterministic isolated layout candidates without persisting Variants."],
     ["activate_variant", "Activate a Variant through BlockPlanAPI."],
     ["get_iteration_request", "Build an iteration request from existing lineage, validation, Reviews, and approved Memory."]
   ].map(([name, description]) => ({ name, description }));
@@ -197,6 +206,7 @@
     get_variant_validation: getVariantValidation,
     get_layout_problem: getLayoutProblem,
     evaluate_layout_variant: evaluateLayoutVariant,
+    generate_layout_candidates: generateLayoutCandidates,
     activate_variant: activateVariant,
     get_iteration_request: getIterationRequest
   };
