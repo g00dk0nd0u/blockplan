@@ -8,6 +8,10 @@ const categories = [{ id: "space", name: "Space", color: "#445566" }];
 async function installBenchmark(page, fixture, cells, assignments) {
   return page.evaluate(({ fixture, cells, assignments, categories }) => {
     const api = window.BlockPlanAPI;
+    api.setModuleSize(1000);
+    const working = api.getPlan();
+    working.categories = categories;
+    api.setPlan(working);
     api.setBubbleDiagram({ version: 1, bubbles: fixture.bubbles, connectors: fixture.connectors });
     const prepared = window.BlockPlanAgent.callTool("prepare_generation_request", { rulePack: fixture.rulePack });
     const snapshotId = prepared.request.requirementsSnapshotId;
@@ -27,13 +31,58 @@ test("Rule Pack v1 is strict, canonical, and rejects unsupported input", async (
       { id: "repeat", kind: "repeatability", selector: { types: ["room"] }, severity: "preferred", parameters: {} }
     ] };
     const attempt = (pack) => { try { return window.LayoutIntelligence.requireValidRulePack(pack); } catch (error) { return error.message; } };
-    return { valid: attempt(valid), badKind: attempt({ version: 1, id: "x", rules: [{ ...valid.rules[0], kind: "egress" }] }), badSelector: attempt({ version: 1, id: "x", rules: [{ ...valid.rules[0], selector: { names: ["Room"] } }] }), badParameters: attempt({ version: 1, id: "x", rules: [{ ...valid.rules[0], parameters: { maxRelativeDeviation: -1 } }] }) };
+    const withParameter = (rule, parameters) => ({ version: 1, id: "x", rules: [{ ...rule, parameters }] });
+    return {
+      valid: attempt(valid),
+      badKind: attempt({ version: 1, id: "x", rules: [{ ...valid.rules[0], kind: "egress" }] }),
+      badSelector: attempt({ version: 1, id: "x", rules: [{ ...valid.rules[0], selector: { names: ["Room"] } }] }),
+      badParameters: attempt(withParameter(valid.rules[0], { maxRelativeDeviation: -1 })),
+      unsupportedRoot: attempt({ version: 1, id: "x", rules: [], buildingType: "data-center" }),
+      numericString: attempt(withParameter(valid.rules[0], { maxRelativeDeviation: "0.2" })),
+      numericNull: attempt(withParameter(valid.rules[0], { maxRelativeDeviation: null })),
+      numericBoolean: attempt(withParameter(valid.rules[0], { maxRelativeDeviation: true })),
+      fillString: attempt(withParameter(valid.rules[2], { minimumFillRatio: "0.8" })),
+      ratioBelowOne: attempt(withParameter(valid.rules[1], { maximum: 0.5 })),
+      fractionalGap: attempt(withParameter(valid.rules[3], { maximumGridGap: 1.5 })),
+      gapString: attempt(withParameter(valid.rules[3], { maximumGridGap: "2" }))
+    };
   });
   expect(result.valid.rules).toHaveLength(5);
   expect(result.valid.rules[4].parameters.requireIdentical).toBe(true);
   expect(result.badKind).toContain("unsupported kind");
   expect(result.badSelector).toContain("selector");
   expect(result.badParameters).toContain("invalid");
+  expect(result.unsupportedRoot).toContain("unsupported field");
+  [result.numericString, result.numericNull, result.numericBoolean, result.fillString, result.ratioBelowOne, result.fractionalGap, result.gapString].forEach((error) => expect(error).toContain("invalid"));
+});
+
+test("LayoutProblem rejects malformed frozen generation contexts without mutating Snapshots", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setBubbleDiagram({ version: 1, bubbles: [{ id: "room", name: "Room", type: "work" }], connectors: [] });
+    const contexts = [
+      { version: 1, moduleSizeMm: "1000", categories: [{ id: "x", name: "X", color: "#123456" }] },
+      { version: 1, moduleSizeMm: 1000, categories: [] },
+      { version: 1, moduleSizeMm: 1000, categories: [{ id: "x", name: "", color: "not-a-color" }] },
+      { version: 1, moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#123456" }, { id: "x", name: "Duplicate", color: "#654321" }] }
+    ];
+    return contexts.map((generationContext) => {
+      const snapshot = api.createRequirementsSnapshot({ metadata: { generationContext } }).requirementsSnapshot;
+      const before = api.getRequirementsSnapshot(snapshot.requirementsSnapshotId);
+      const problem = api.getLayoutProblem(snapshot.requirementsSnapshotId);
+      const after = api.getRequirementsSnapshot(snapshot.requirementsSnapshotId);
+      return { problem, before, after };
+    });
+  });
+  result.forEach(({ problem, before, after }) => {
+    expect(problem.ok).toBe(false);
+    expect(after).toEqual(before);
+  });
+  expect(result[0].problem.error).toContain("moduleSizeMm");
+  expect(result[1].problem.error).toContain("non-empty array");
+  expect(result[2].problem.error).toContain("name");
+  expect(result[3].problem.error).toContain("Duplicate");
 });
 
 test("LayoutProblem is frozen, sanitized, deterministic, and includes only approved relevant Memory", async ({ page }) => {
@@ -119,6 +168,7 @@ test("Data Center benchmark uses generic rules and yields deterministic repeatab
   cells["5,0"] = { categoryId: "space", zoneId: "mmr1" };
   const result = await installBenchmark(page, dataCenter, cells, assignments);
   expect(result.created.ok).toBe(true);
+  expect(result.problem).toMatchObject({ moduleSizeMm: 1000, categories });
   expect(result.evaluation.qualityDimensions.repeatability.find((item) => item.bubbleId === "hall")).toMatchObject({ zoneCount: 2, distinctShapeCount: 1, identicalShapes: true });
   expect(result.evaluation.hardViolations).toEqual([]);
   expect(result.evaluation).not.toHaveProperty("overallScore");
@@ -132,6 +182,7 @@ test("Office benchmark runs through the same domain-neutral evaluator", async ({
   cells["3,0"] = { categoryId: "space", zoneId: "reception1" }; cells["3,1"] = { categoryId: "space", zoneId: "support1" };
   const result = await installBenchmark(page, office, cells, assignments);
   expect(result.created.ok).toBe(true);
+  expect(result.problem).toMatchObject({ moduleSizeMm: 1000, categories });
   expect(result.evaluation.hardViolations).toEqual([]);
   expect(result.problem.spaces.map((space) => space.type)).toEqual(["work", "collaboration", "arrival", "support"]);
   expect(result.evaluation.criticFindings).toEqual([]);

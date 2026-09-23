@@ -6,16 +6,17 @@
   const SEVERITIES = new Set(["required", "preferred"]);
 
   function finite(value, path, options = {}) {
-    const number = Number(value);
-    if (!Number.isFinite(number) || (options.minimum !== undefined && number < options.minimum) || (options.maximum !== undefined && number > options.maximum)) {
+    if (typeof value !== "number" || !Number.isFinite(value) || (options.integer && !Number.isInteger(value)) || (options.minimum !== undefined && value < options.minimum) || (options.maximum !== undefined && value > options.maximum)) {
       throw new Error(`${path} is invalid`);
     }
-    return number;
+    return value;
   }
 
   function normalizeRulePack(source) {
     if (source == null) return null;
     if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("Rule Pack must be an object");
+    const allowedRootFields = new Set(["version", "id", "rules"]);
+    Object.keys(source).forEach((key) => { if (!allowedRootFields.has(key)) throw new Error(`Rule Pack has unsupported field: ${key}`); });
     if (source.version !== 1) throw new Error("Rule Pack version must be 1");
     if (typeof source.id !== "string" || !source.id.trim()) throw new Error("Rule Pack id is required");
     if (!Array.isArray(source.rules)) throw new Error("Rule Pack rules must be an array");
@@ -55,7 +56,16 @@
         if (parameters.requireIdentical !== undefined && typeof parameters.requireIdentical !== "boolean") throw new Error(`${path} parameters.requireIdentical must be boolean`);
         normalizedParameters.requireIdentical = parameters.requireIdentical === undefined ? true : parameters.requireIdentical;
       } else {
-        parameterKeys.forEach((key) => { normalizedParameters[key] = finite(parameters[key], `${path} parameters.${key}`, { minimum: 0, maximum: key === "minimumFillRatio" ? 1 : undefined }); });
+        parameterKeys.forEach((key) => {
+          const limits = sourceRule.kind === "aspect-ratio"
+            ? { minimum: 1 }
+            : sourceRule.kind === "compactness"
+              ? { minimum: 0, maximum: 1 }
+              : sourceRule.kind === "near-distance"
+                ? { minimum: 0, integer: true }
+                : { minimum: 0 };
+          normalizedParameters[key] = finite(parameters[key], `${path} parameters.${key}`, limits);
+        });
         if (sourceRule.kind === "aspect-ratio" && !parameterKeys.length) throw new Error(`${path} aspect-ratio requires minimum and/or maximum`);
         if (normalizedParameters.minimum !== undefined && normalizedParameters.maximum !== undefined && normalizedParameters.minimum > normalizedParameters.maximum) throw new Error(`${path} minimum exceeds maximum`);
       }
@@ -66,9 +76,28 @@
 
   function requireValidRulePack(source) { return normalizeRulePack(source); }
 
+  function requireValidGenerationContext(source) {
+    if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("generationContext must be an object");
+    if (source.version !== 1) throw new Error("generationContext.version must be 1");
+    finite(source.moduleSizeMm, "generationContext.moduleSizeMm");
+    if (source.moduleSizeMm <= 0) throw new Error("generationContext.moduleSizeMm must be greater than zero");
+    if (!Array.isArray(source.categories) || !source.categories.length) throw new Error("generationContext.categories must be a non-empty array");
+    const categoryIds = new Set();
+    source.categories.forEach((category, index) => {
+      const path = `generationContext.categories[${index}]`;
+      if (!category || typeof category !== "object" || Array.isArray(category)) throw new Error(`${path} must be an object`);
+      if (typeof category.id !== "string" || !category.id.trim()) throw new Error(`${path}.id must be a non-empty string`);
+      if (categoryIds.has(category.id)) throw new Error(`Duplicate generationContext category id: ${category.id}`);
+      categoryIds.add(category.id);
+      if (typeof category.name !== "string" || !category.name.trim()) throw new Error(`${path}.name must be a non-empty string`);
+      if (typeof category.color !== "string" || !/^#[0-9a-f]{6}$/i.test(category.color)) throw new Error(`${path}.color must be a #RRGGBB color`);
+    });
+    return source;
+  }
+
   function buildLayoutProblem({ requirementsSnapshot, generationContext, relevantMemory = [], rulePack } = {}) {
     if (!requirementsSnapshot || typeof requirementsSnapshot !== "object") throw new Error("Requirements Snapshot is required");
-    if (!generationContext || typeof generationContext !== "object" || Array.isArray(generationContext)) throw new Error("generationContext is required");
+    requireValidGenerationContext(generationContext);
     const selectedRulePack = rulePack === undefined ? generationContext.rulePack : rulePack;
     return clone({
       version: 1,
