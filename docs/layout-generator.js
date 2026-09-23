@@ -92,7 +92,12 @@
     return Object.entries(orders).map(([family, order]) => ({ version: 1, strategyId: `${family}-v1`, requirementsSnapshotId: problem.requirementsSnapshotId, family, placementOrder: order.map((item) => item.instanceId), relationshipIntentions: clone(intentions), rationale: { priority: family, deterministic: true, topologyBeforeGeometry: true } }));
   }
 
-  function rectTouches(a, b) { return a.x <= b.x + b.width - 1 && b.x <= a.x + a.width - 1 && a.y <= b.y + b.height - 1 && b.y <= a.y + a.height - 1 && (a.x + a.width === b.x || b.x + b.width === a.x || a.y + a.height === b.y || b.y + b.height === a.y); }
+  function rectTouches(a, b) {
+    const horizontalOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+    const verticalOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+    return ((a.x + a.width === b.x || b.x + b.width === a.x) && verticalOverlap > 0)
+      || ((a.y + a.height === b.y || b.y + b.height === a.y) && horizontalOverlap > 0);
+  }
   function overlaps(a, b) { return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height; }
   function inFrame(rect, frame) { const b = frame.bounds; return rect.x >= b.x && rect.y >= b.y && rect.x + rect.width <= b.x + b.width && rect.y + rect.height <= b.y + b.height; }
 
@@ -144,7 +149,50 @@
   }
   function dominates(a, b) { const keys = Object.keys(a); return keys.every((key) => a[key] <= b[key]) && keys.some((key) => a[key] < b[key]); }
 
-  function repairCandidate(candidate) { return candidate; }
+  function evaluationFor(candidate, problem, requirementsSnapshot) {
+    return LayoutIntelligence.evaluateVariant({ variantId: "derived-repair", requirementsSnapshotId: problem.requirementsSnapshotId, blockPlan: candidate.blockPlan }, requirementsSnapshot, { layoutProblem: problem });
+  }
+
+  function translatedCandidate(candidate, zoneId, dx, dy, frame) {
+    const movedKeys = Object.entries(candidate.blockPlan.cells).filter(([, cell]) => cell.zoneId === zoneId).map(([key]) => key);
+    const moving = new Set(movedKeys), replacements = [];
+    for (const key of movedKeys) {
+      const [x, y] = key.split(",").map(Number), next = `${x + dx},${y + dy}`;
+      if (!inFrame({ x: x + dx, y: y + dy, width: 1, height: 1 }, frame) || (candidate.blockPlan.cells[next] && !moving.has(next))) return null;
+      replacements.push([next, candidate.blockPlan.cells[key]]);
+    }
+    const repaired = clone(candidate);
+    movedKeys.forEach((key) => delete repaired.blockPlan.cells[key]);
+    replacements.forEach(([key, cell]) => { repaired.blockPlan.cells[key] = cell; });
+    return repaired;
+  }
+
+  function repairCandidate(candidate, { frame, problem, requirementsSnapshot, maxRepairIterations = DEFAULTS.maxRepairIterations } = {}) {
+    let current = clone(candidate), evaluation = evaluationFor(current, problem, requirementsSnapshot);
+    const moves = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+    const issueKey = (issue) => JSON.stringify([issue.code, issue.connectorId || null, issue.bubbleId || null, issue.zoneId || null]);
+    for (let iteration = 0; iteration < maxRepairIterations; iteration += 1) {
+      const currentDimensions = candidateDimensions(evaluation);
+      const currentHardIssues = new Set([...evaluation.dataErrors, ...evaluation.hardViolations].map(issueKey));
+      let accepted = null;
+      for (const zoneId of Object.keys(current.blockPlan.zoneAssignments).sort()) {
+        for (const [dx, dy] of moves) {
+          const proposal = translatedCandidate(current, zoneId, dx, dy, frame);
+          if (!proposal) continue;
+          const proposedEvaluation = evaluationFor(proposal, problem, requirementsSnapshot);
+          const proposedDimensions = candidateDimensions(proposedEvaluation);
+          const proposedHardIssues = [...proposedEvaluation.dataErrors, ...proposedEvaluation.hardViolations];
+          const removesHardFailure = proposedDimensions.hardViolationCount < currentDimensions.hardViolationCount && proposedHardIssues.every((issue) => currentHardIssues.has(issueKey(issue)));
+          const feasibleParetoImprovement = currentDimensions.hardViolationCount === 0 && proposedDimensions.hardViolationCount === 0 && dominates(proposedDimensions, currentDimensions);
+          if (removesHardFailure || feasibleParetoImprovement) { accepted = { candidate: proposal, evaluation: proposedEvaluation }; break; }
+        }
+        if (accepted) break;
+      }
+      if (!accepted) break;
+      current = accepted.candidate; evaluation = accepted.evaluation;
+    }
+    return { candidate: current, evaluation };
+  }
 
   function diversitySignature(candidate) {
     const zones = new Map(); Object.entries(candidate.blockPlan.cells).forEach(([key, cell]) => { if (!zones.has(cell.zoneId)) zones.set(cell.zoneId, []); zones.get(cell.zoneId).push(key.split(",").map(Number)); });
@@ -159,9 +207,17 @@
   function selectDiverseCandidates(candidates, count) {
     const pareto = candidates.filter((candidate, index) => !candidates.some((other, otherIndex) => otherIndex !== index && dominates(other.dimensions, candidate.dimensions)));
     const ordered = [...pareto].sort((a, b) => a.strategy.localeCompare(b.strategy) || diversitySignature(a).localeCompare(diversitySignature(b)));
-    const selected = [], signatures = new Set();
-    for (const candidate of ordered) { const signature = diversitySignature(candidate); if (!signatures.has(signature)) { signatures.add(signature); selected.push(candidate); } if (selected.length === count) break; }
-    if (selected.length < count) for (const candidate of candidates.sort((a, b) => a.strategy.localeCompare(b.strategy))) { const signature = diversitySignature(candidate); if (!signatures.has(signature)) { signatures.add(signature); selected.push(candidate); } if (selected.length === count) break; }
+    const selected = [], signatures = new Set(), families = [...new Set(ordered.map((candidate) => candidate.strategy))];
+    for (let familyIndex = 0; selected.length < count; familyIndex += 1) {
+      let added = false;
+      for (const family of families) {
+        const candidate = ordered.filter((item) => item.strategy === family).find((item) => !signatures.has(diversitySignature(item)));
+        if (!candidate) continue;
+        signatures.add(diversitySignature(candidate)); selected.push(candidate); added = true;
+        if (selected.length === count) break;
+      }
+      if (!added || familyIndex >= ordered.length) break;
+    }
     return selected;
   }
 
@@ -177,32 +233,37 @@
     for (const instance of expanded.instances) if (!shapes.get(instance.instanceId).length) diagnostics.push({ code: "no_feasible_shape", instanceId: instance.instanceId });
     if (diagnostics.length) return { candidates: [], diagnostics, metadata: { frame, frameSource } };
     const strategies = buildTopologyStrategies(problem, expanded.instances), completed = []; let exploredStates = 0, exhausted = false;
-    for (const strategy of strategies) {
-      let beam = [{ placements: [] }];
+    const baseBudget = Math.floor(options.maxStates / strategies.length), remainder = options.maxStates % strategies.length;
+    const strategyBudgets = strategies.map((strategy, index) => ({ strategy, allocatedStates: baseBudget + (index < remainder ? 1 : 0) }));
+    const strategySearch = [];
+    for (const { strategy, allocatedStates } of strategyBudgets) {
+      let beam = [{ placements: [] }], strategyExplored = 0, strategyExhausted = false;
       for (const instanceId of strategy.placementOrder) {
         const next = [];
         for (const state of beam) for (const shape of shapes.get(instanceId)) for (const placement of frontierPlacements(shape, state, frame, strategy, instanceId).slice(0, options.maxPlacementCandidatesPerInstance)) {
-          if (exploredStates >= options.maxStates) { exhausted = true; break; }
-          exploredStates += 1;
+          if (strategyExplored >= allocatedStates) { strategyExhausted = true; break; }
+          strategyExplored += 1; exploredStates += 1;
           if (placementFeasible(placement, state.placements, strategy, frame)) next.push({ placements: [...state.placements, placement] });
         }
-        if (exhausted) break;
         beam = next.sort((a, b) => compareStates(a, b, strategy)).slice(0, options.beamWidth);
+        if (strategyExhausted) break;
         if (!beam.length) break;
       }
+      let completedCandidateCount = 0;
       beam.slice(0, Math.max(options.requestedVariantCount * 3, 6)).forEach((state, index) => {
         if (state.placements.length !== expanded.instances.length) return;
         const candidate = { strategy: strategy.family, rationale: JSON.stringify({ strategyId: strategy.strategyId, family: strategy.family, candidateIndex: index }), generator: { name: "BlockPlan LayoutGenerator", version: 1, strategyId: strategy.strategyId }, blockPlan: blockPlanFrom(state, problem) };
-        const evaluation = LayoutIntelligence.evaluateVariant({ variantId: `derived-${strategy.strategyId}-${index}`, requirementsSnapshotId: problem.requirementsSnapshotId, blockPlan: candidate.blockPlan }, requirementsSnapshot, { layoutProblem: problem });
-        if (!evaluation.dataErrors.length && !evaluation.hardViolations.length) completed.push({ ...repairCandidate(candidate, options), dimensions: candidateDimensions(evaluation) });
+        const repaired = repairCandidate(candidate, { frame, problem, requirementsSnapshot, maxRepairIterations: options.maxRepairIterations });
+        if (!repaired.evaluation.dataErrors.length && !repaired.evaluation.hardViolations.length) { completed.push({ ...repaired.candidate, dimensions: candidateDimensions(repaired.evaluation) }); completedCandidateCount += 1; }
       });
-      if (exhausted) break;
+      strategySearch.push({ strategyId: strategy.strategyId, allocatedStates, exploredStates: strategyExplored, exhausted: strategyExhausted, completedCandidateCount });
+      if (strategyExhausted) exhausted = true;
     }
     if (exhausted) diagnostics.push({ code: "search_budget_exhausted", maxStates: options.maxStates, exploredStates });
     const selected = selectDiverseCandidates(completed, options.requestedVariantCount).map(({ dimensions, ...candidate }) => candidate);
     if (selected.length < options.requestedVariantCount) diagnostics.push({ code: "fewer_distinct_candidates", requested: options.requestedVariantCount, available: selected.length });
-    return clone({ candidates: selected, diagnostics, metadata: { frame, frameSource, exploredStates, strategies: strategies.map(({ version, strategyId, requirementsSnapshotId, family, placementOrder, relationshipIntentions, rationale }) => ({ version, strategyId, requirementsSnapshotId, family, placementOrder, relationshipIntentions, rationale })) } });
+    return clone({ candidates: selected, diagnostics, metadata: { frame, frameSource, exploredStates, strategySearch, strategies: strategies.map(({ version, strategyId, requirementsSnapshotId, family, placementOrder, relationshipIntentions, rationale }) => ({ version, strategyId, requirementsSnapshotId, family, placementOrder, relationshipIntentions, rationale })) } });
   }
 
-  window.LayoutGenerator = { DEFAULTS, normalizeGenerationFrame, normalizeOptions, expandSpaceInstances, enumerateShapeCandidates, buildTopologyStrategies, generateCandidates, repairCandidate, selectDiverseCandidates, diversitySignature };
+  window.LayoutGenerator = { DEFAULTS, normalizeGenerationFrame, normalizeOptions, expandSpaceInstances, enumerateShapeCandidates, buildTopologyStrategies, generateCandidates, repairCandidate, selectDiverseCandidates, diversitySignature, rectTouches };
 })();

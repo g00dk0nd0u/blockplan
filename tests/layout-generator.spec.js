@@ -64,13 +64,44 @@ test("missing size fails explicitly and inferred frame is deterministic", async 
   expect(result[0].metadata.frameSource).toBe("inferred");
 });
 
+test("rectangle adjacency requires a positive-length shared edge", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const touches = window.LayoutGenerator.rectTouches, base = { x: 0, y: 0, width: 2, height: 2 };
+    return {
+      horizontal: touches(base, { x: 2, y: 0, width: 1, height: 2 }),
+      vertical: touches(base, { x: 0, y: 2, width: 2, height: 1 }),
+      corner: touches(base, { x: 2, y: 2, width: 1, height: 1 }),
+      overlap: touches(base, { x: 1, y: 1, width: 2, height: 2 }),
+      gap: touches(base, { x: 3, y: 0, width: 1, height: 2 })
+    };
+  });
+  expect(result).toEqual({ horizontal: true, vertical: true, corner: false, overlap: false, gap: false });
+});
+
+test("bounded repair translates a rectangle and re-evaluates the repaired geometry", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const problem = { version: 1, requirementsSnapshotId: "repair", moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }], generationFrame: { version: 1, bounds: { x: 0, y: 0, width: 4, height: 2 } }, spaces: [{ bubbleId: "a", type: "room", targetSize: { value: 1, unit: "sqm" }, quantity: 1 }, { bubbleId: "b", type: "room", targetSize: { value: 1, unit: "sqm" }, quantity: 1 }], relationships: [{ connectorId: "adj", fromBubbleId: "a", toBubbleId: "b", relationType: "adjacent", priority: "required" }], rulePack: null };
+    const snapshot = { requirementsSnapshotId: "repair", bubbles: [{ id: "a", type: "room", size: { value: 1, unit: "sqm" }, quantity: 1 }, { id: "b", type: "room", size: { value: 1, unit: "sqm" }, quantity: 1 }], connectors: [{ id: "adj", fromBubbleId: "a", toBubbleId: "b", relationType: "adjacent", priority: "required" }] };
+    const candidate = { strategy: "repair", rationale: "repair", blockPlan: { moduleSizeMm: 1000, categories: problem.categories, cells: { "0,0": { categoryId: "x", zoneId: "a" }, "2,0": { categoryId: "x", zoneId: "b" } }, zoneAssignments: { a: { bubbleId: "a" }, b: { bubbleId: "b" } } } };
+    const before = window.LayoutIntelligence.evaluateVariant({ variantId: "before", requirementsSnapshotId: "repair", blockPlan: candidate.blockPlan }, snapshot, { layoutProblem: problem });
+    const repaired = window.LayoutGenerator.repairCandidate(candidate, { frame: problem.generationFrame, problem, requirementsSnapshot: snapshot, maxRepairIterations: 2 });
+    return { before, repaired };
+  });
+  expect(result.before.hardViolations).toHaveLength(1);
+  expect(result.repaired.evaluation.hardViolations).toEqual([]);
+  expect(result.repaired.candidate.blockPlan.cells).toHaveProperty("1,0");
+  expect(result.repaired.candidate.blockPlan.cells).not.toHaveProperty("0,0");
+});
+
 for (const [name, fixture, frame] of [["Data Center", dataCenter, { version: 1, bounds: { x: 0, y: 0, width: 16, height: 12 } }], ["Office", office, { version: 1, bounds: { x: 0, y: 0, width: 12, height: 10 } }]]) {
   test(`${name} benchmark generates feasible isolated candidates`, async ({ page }) => {
     await page.goto(appUrl);
     const prepared = await prepare(page, fixture, frame);
     const result = await page.evaluate((id) => {
       const api = window.BlockPlanAPI, before = api.getPlan();
-      const generated = api.generateLayoutCandidates(id, { requestedVariantCount: 3, maxStates: 16000 });
+      const generated = api.generateLayoutCandidates(id, { requestedVariantCount: 3, maxStates: 50000 });
       const after = api.getPlan();
       const evaluations = generated.candidates.map((candidate) => window.LayoutIntelligence.evaluateVariant({ variantId: "derived", requirementsSnapshotId: id, blockPlan: candidate.blockPlan }, api.getRequirementsSnapshot(id), { layoutProblem: api.getLayoutProblem(id) }));
       return { generated, before, after, evaluations };
@@ -99,6 +130,29 @@ test("diversity ignores translation and zone ids, and search budget terminates",
   });
   expect(result.selected).toBe(1);
   expect(result.budget.diagnostics).toContainEqual(expect.objectContaining({ code: "search_budget_exhausted", maxStates: 1 }));
+});
+
+test("selection never restores dominated candidates", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const candidate = (strategy, x, value) => ({ strategy, rationale: strategy, blockPlan: { moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }], cells: { [`${x},0`]: { categoryId: "x", zoneId: strategy }, [`${x},1`]: { categoryId: "x", zoneId: strategy } }, zoneAssignments: { [strategy]: { bubbleId: strategy } } }, dimensions: { hardViolationCount: 0, preferredIssueCount: value, areaDeviationSum: value, repeatabilityMismatchCount: value } });
+    return window.LayoutGenerator.selectDiverseCandidates([candidate("dominant", 0, 0), candidate("dominated", 3, 1)], 3).map((item) => item.strategy);
+  });
+  expect(result).toEqual(["dominant"]);
+});
+
+test("search budget is deterministic and fairly allocated across strategies", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const problem = { version: 1, requirementsSnapshotId: "budget", moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }], spaces: [{ bubbleId: "a", type: "room", targetSize: { value: 2, unit: "sqm" }, quantity: 2 }], relationships: [], relevantMemory: [], rulePack: null };
+    const snapshot = { requirementsSnapshotId: "budget", bubbles: [{ id: "a", type: "room", size: { value: 2, unit: "sqm" }, quantity: 2 }], connectors: [] };
+    const options = { maxStates: 8, requestedVariantCount: 3 };
+    return [window.LayoutGenerator.generateCandidates(problem, snapshot, options), window.LayoutGenerator.generateCandidates(problem, snapshot, options)];
+  });
+  expect(result[0].metadata.exploredStates).toBeLessThanOrEqual(8);
+  expect(result[0].metadata.strategySearch.map((item) => item.allocatedStates)).toEqual([3, 3, 2]);
+  expect(result[0].metadata.strategySearch.every((item) => item.exploredStates > 0)).toBe(true);
+  expect(result[0].metadata.strategySearch).toEqual(result[1].metadata.strategySearch);
 });
 
 test("Agent generation uses API path and generated candidates remain submit-compatible", async ({ page }) => {
