@@ -22,6 +22,9 @@
 - Approved and rejected Memory items are immutable historical records, and only approved Memory is used in generation context.
 - Every Memory item remains evidence-linked to existing Review IDs.
 - Relevant Memory retrieval is deterministic and condition-based, never embedding-based.
+- Layout Intelligence is stateless and derived; Variant evaluations are never persisted.
+- Core intelligence must not branch by building type. Domain Profiles and Rule Packs are data.
+- Data Center is a benchmark/profile, not core schema, and evaluation must not produce an overall design score or automatic ranking.
 
 ## Hidden Browser API
 

@@ -62,6 +62,8 @@
     if (!generationContext || typeof generationContext !== "object" || Array.isArray(generationContext)) {
       throw new Error("Requirements Snapshot generationContext must be an object");
     }
+    const layoutProblem = api.getLayoutProblem(requirementsSnapshotId, { memoryContext: options.memoryContext || {} });
+    if (layoutProblem && layoutProblem.ok === false) throw new Error(layoutProblem.error);
     return clone({
       contract: CONTRACT,
       requestType: "generation",
@@ -71,6 +73,7 @@
       moduleSizeMm: generationContext.moduleSizeMm,
       categories: generationContext.categories,
       relevantMemory: context.relevantMemory || [],
+      layoutProblem,
       candidateOutput
     });
   }
@@ -92,7 +95,8 @@
           generationContext: clone({
             version: 1,
             moduleSizeMm: working.moduleSizeMm,
-            categories: working.categories
+            categories: working.categories,
+            ...(options.rulePack === undefined ? {} : { rulePack: LayoutIntelligence.requireValidRulePack(options.rulePack) })
           })
         }
       });
@@ -126,6 +130,20 @@
     const validation = api.validateVariantAgainstDiagram(variantId);
     if (validation && validation.ok === false) return fail("VALIDATION_FAILED", validation.error);
     return { ok: true, variantId, validation: clone(validation) };
+  }
+
+  function getLayoutProblem(options = {}) {
+    const id = typeof options === "string" ? options : options.requirementsSnapshotId;
+    if (!id) return fail("MISSING_SNAPSHOT_ID", "requirementsSnapshotId is required");
+    const result = api.getLayoutProblem(id, typeof options === "object" ? options : {});
+    return result && result.ok === false ? fail("LAYOUT_PROBLEM_FAILED", result.error) : { ok: true, layoutProblem: clone(result) };
+  }
+
+  function evaluateLayoutVariant(options = {}) {
+    const variantId = typeof options === "string" ? options : options.variantId;
+    if (!variantId) return fail("MISSING_VARIANT_ID", "variantId is required");
+    const result = api.evaluateVariantLayout(variantId, typeof options === "object" ? options : {});
+    return result && result.ok === false ? fail("LAYOUT_EVALUATION_FAILED", result.error) : { ok: true, variantId, evaluation: clone(result) };
   }
 
   function activateVariant(options = {}) {
@@ -166,6 +184,8 @@
     ["get_generation_request", "Rebuild a request for an existing Requirements Snapshot without mutation."],
     ["submit_generated_variants", "Atomically submit multiple immutable candidates without activation."],
     ["get_variant_validation", "Derive validation for a Variant without persisting it."],
+    ["get_layout_problem", "Compile a stable semantic LayoutProblem from an immutable Requirements Snapshot."],
+    ["evaluate_layout_variant", "Derive geometry metrics and generic Rule Pack findings for a Variant."],
     ["activate_variant", "Activate a Variant through BlockPlanAPI."],
     ["get_iteration_request", "Build an iteration request from existing lineage, validation, Reviews, and approved Memory."]
   ].map(([name, description]) => ({ name, description }));
@@ -175,6 +195,8 @@
     get_generation_request: getGenerationRequest,
     submit_generated_variants: submitGeneratedVariants,
     get_variant_validation: getVariantValidation,
+    get_layout_problem: getLayoutProblem,
+    evaluate_layout_variant: evaluateLayoutVariant,
     activate_variant: activateVariant,
     get_iteration_request: getIterationRequest
   };
