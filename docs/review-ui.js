@@ -43,7 +43,7 @@
     if (!variants.some((variant) => variant.variantId === selectedVariantId)) selectedVariantId = variants[0].variantId;
     const selected = variants.find((variant) => variant.variantId === selectedVariantId);
     dock.innerHTML = `<div class="review-dock-row">
-      <label>Variant <select data-testid="review-variant-select">${variants.map((variant) => `<option value="${escapeHtml(variant.variantId)}"${variant.variantId === selectedVariantId ? " selected" : ""}>${escapeHtml(variant.variantId)}</option>`).join("")}</select></label>
+      <label>Variant <select data-testid="review-variant-select">${variants.map((variant) => `<option value="${escapeHtml(variant.variantId)}"${variant.variantId === selectedVariantId ? " selected" : ""}>${escapeHtml(variant.variantId)}${variant.strategy ? ` · ${escapeHtml(variant.strategy)}` : ""}</option>`).join("")}</select></label>
       <button type="button" data-testid="review-toggle">${reviewModeActive ? "Exit Review" : "Review"}</button>
     </div>
     ${reviewModeActive ? `<div class="review-target">Reviewing <strong>${escapeHtml(selected.variantId)}</strong></div><div class="review-decisions">${["accept", "iterate", "reject"].map((decision) => `<button type="button" data-decision="${decision}" data-testid="review-${decision}">${decision[0].toUpperCase() + decision.slice(1)}</button>`).join("")}</div>${decisionEditor(selected, variants)}` : ""}`;
@@ -54,7 +54,6 @@
     selectedVariantId = event.target.value;
     pendingDecision = null;
     window.BlockPlanAPI.activateVariant(selectedVariantId);
-    refreshReviewDock();
   });
 
   dock.addEventListener("click", (event) => {
@@ -95,5 +94,11 @@
 
   window.refreshReviewDock = refreshReviewDock;
   window.addEventListener("blockplan-mode-change", refreshReviewDock);
+  window.addEventListener("blockplan-variant-activated", (event) => {
+    if (!event.detail || !event.detail.variantId) return;
+    selectedVariantId = event.detail.variantId;
+    pendingDecision = null;
+    refreshReviewDock();
+  });
   refreshReviewDock();
 })();

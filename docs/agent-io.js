@@ -245,11 +245,40 @@
 
   const generateButton = document.getElementById("generateBlockPlansButton");
   const readyStatus = document.getElementById("generationReadyStatus");
+  function generationFailureMessage(result) {
+    const diagnostics = result && Array.isArray(result.diagnostics) ? result.diagnostics : [];
+    if (diagnostics.some((item) => item.code === "missing_evaluable_size")) return "Generation failed · Add an area to every space";
+    if (diagnostics.some((item) => item.code === "search_budget_exhausted")) return "Generation stopped · Search budget exhausted";
+    return `Generation failed · ${result && result.error ? result.error : "No feasible layout found"}`;
+  }
+
   generateButton.addEventListener("click", () => {
-    const result = prepareGenerationRequest();
-    readyStatus.textContent = result.ok
-      ? `AI request ready · ${result.request.requirementsSnapshotId}`
-      : `Request not ready · ${result.error}`;
+    const prepared = prepareGenerationRequest({ requestedVariantCount: 3 });
+    if (!prepared.ok) {
+      readyStatus.textContent = generationFailureMessage(prepared);
+      return;
+    }
+    const requirementsSnapshotId = prepared.request.requirementsSnapshotId;
+    const generated = api.generateLayoutCandidates(requirementsSnapshotId, { requestedVariantCount: 3 });
+    if (generated.ok === false || !Array.isArray(generated.candidates) || !generated.candidates.length) {
+      readyStatus.textContent = generationFailureMessage(generated);
+      return;
+    }
+    const created = api.createVariants({ requirementsSnapshotId, candidates: generated.candidates });
+    if (!created.ok) {
+      readyStatus.textContent = generationFailureMessage(created);
+      return;
+    }
+    const activated = api.activateVariant(created.variants[0].variantId);
+    if (!activated.ok) {
+      readyStatus.textContent = generationFailureMessage(activated);
+      return;
+    }
+    window.setBlockPlanEditorMode("block");
+    if (typeof window.refreshReviewDock === "function") window.refreshReviewDock();
+    readyStatus.textContent = created.variants.length === 1
+      ? "1 variant generated"
+      : `${created.variants.length} distinct variants generated`;
   });
 
   const agentMode = new URLSearchParams(window.location.search).get("agent") === "1";
