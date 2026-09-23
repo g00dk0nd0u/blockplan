@@ -281,11 +281,15 @@ test("generation snapshots and isolated variants validate and activate safely", 
     const duplicate = api.duplicateVariant({ sourceVariantId: "a", newVariantId: "copy" });
     duplicate.variant.blockPlan.cells["0,0"].zoneId = "leak";
     const deleteParent = api.deleteVariant("a");
+    const afterCreate = api.getPlan();
+    let activatedEvent = null;
+    window.addEventListener("blockplan-variant-activated", (event) => { activatedEvent = event.detail; }, { once: true });
+    const activation = api.activateVariant("a");
     return {
-      snapshot, storedSnapshot: api.getRequirementsSnapshot(snapshot.requirementsSnapshotId), before, afterCreate: api.getPlan(),
+      snapshot, storedSnapshot: api.getRequirementsSnapshot(snapshot.requirementsSnapshotId), before, afterCreate,
       a: api.getVariant("a"), b: api.getVariant("b"), storedCopy: api.getVariant("copy"), invalidZone, invalidBubble,
       deleteParent, variantsAfterDelete: api.listVariants(),
-      validation: api.validateVariantAgainstDiagram("a"), activation: api.activateVariant("a")
+      validation: api.validateVariantAgainstDiagram("a"), activation, activatedEvent
     };
   });
 
@@ -302,6 +306,7 @@ test("generation snapshots and isolated variants validate and activate safely", 
   expect(result.variantsAfterDelete.map((variant) => variant.variantId)).toEqual(["a", "b", "copy"]);
   expect(result.invalidZone.ok).toBe(false);
   expect(result.invalidBubble.ok).toBe(false);
+  expect(result.activatedEvent).toEqual({ variantId: "a" });
   expect(result.validation.dataErrors).toEqual([]);
   expect(result.validation.hardViolations).toEqual([]);
   expect(result.validation.metrics.quantities.find((item) => item.bubbleId === "bedroom")).toMatchObject({ target: 2, actual: 2 });

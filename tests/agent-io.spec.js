@@ -269,19 +269,76 @@ test("validation stays derived, activation reuses API behavior, and iteration ch
   expect(result.active.memory.items).toHaveLength(1);
 });
 
-test("Generate Block Plans prepares a request and reports readiness without pretending generation", async ({ page }) => {
+test("Generate Block Plans persists, activates, and reviews generated Variants across repeated runs", async ({ page }) => {
   await page.goto(`${appUrl}?agent=1`);
-  await seedDiagram(page);
+  await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.clear();
+    api.setModuleSize(1000);
+    api.setBubbleDiagram({ version: 1, bubbles: [{ id: "room", name: "Room", type: "room", size: { value: 4, unit: "sqm" }, quantity: 1, position: { x: 120, y: 180 }, metadata: {} }], connectors: [] });
+  });
   await page.getByTestId("mode-bubble").click();
   await expect(page.getByTestId("generate-block-plans")).toBeVisible();
   await page.getByTestId("generate-block-plans").click();
-  await expect(page.getByTestId("generation-ready-status")).toHaveText(/AI request ready · requirements-/);
-  const state = await page.evaluate(() => ({
-    latest: window.BlockPlanAgent.readResource("blockplan://generation/latest-request"),
-    variants: window.BlockPlanAPI.listVariants()
-  }));
-  expect(state.latest.ok).toBe(true);
-  expect(state.variants).toEqual([]);
+  await expect(page.getByTestId("generation-ready-status")).toHaveText("3 distinct variants generated");
+  await expect(page.getByTestId("mode-block")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("review-dock")).toBeVisible();
+  const selector = page.getByTestId("review-variant-select");
+  await expect(selector).toHaveValue("variant-1");
+  await expect(selector.locator("option:checked")).toHaveText(/variant-1 · (relationship|area|repeatability)-first/);
+
+  const firstRun = await page.evaluate(() => ({ plan: window.BlockPlanAPI.getPlan(), variants: window.BlockPlanAPI.listVariants() }));
+  expect(firstRun.plan.generation.requirementsSnapshots).toHaveLength(1);
+  expect(firstRun.variants).toHaveLength(3);
+  expect(firstRun.plan.cells).toEqual(firstRun.variants[0].blockPlan.cells);
+  const immutableFirstRun = JSON.stringify(firstRun.variants);
+
+  await selector.selectOption(firstRun.variants[1].variantId);
+  await expect(selector).toHaveValue(firstRun.variants[1].variantId);
+  expect((await page.evaluate(() => window.BlockPlanAPI.getPlan())).cells).toEqual(firstRun.variants[1].blockPlan.cells);
+
+  await page.getByTestId("mode-bubble").click();
+  await page.getByTestId("generate-block-plans").click();
+  await expect(selector).toHaveValue("variant-4");
+  const secondRun = await page.evaluate(() => ({ plan: window.BlockPlanAPI.getPlan(), variants: window.BlockPlanAPI.listVariants() }));
+  expect(secondRun.plan.generation.requirementsSnapshots).toHaveLength(2);
+  expect(secondRun.variants).toHaveLength(6);
+  expect(JSON.stringify(secondRun.variants.slice(0, 3))).toBe(immutableFirstRun);
+  expect(secondRun.variants[3].requirementsSnapshotId).not.toBe(secondRun.variants[0].requirementsSnapshotId);
+  expect(secondRun.plan.cells).toEqual(secondRun.variants[3].blockPlan.cells);
+});
+
+test("Generate Block Plans accepts fewer distinct candidates without duplication", async ({ page }) => {
+  await page.goto(`${appUrl}?agent=1`);
+  await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.clear(); api.setModuleSize(1000);
+    api.setBubbleDiagram({ version: 1, bubbles: [{ id: "room", name: "Room", type: "room", size: { value: 4, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 }, metadata: {} }], connectors: [] });
+    const generate = api.generateLayoutCandidates.bind(api);
+    api.generateLayoutCandidates = (id) => generate(id, { requestedVariantCount: 1 });
+  });
+  await page.getByTestId("mode-bubble").click();
+  await page.getByTestId("generate-block-plans").click();
+  await expect(page.getByTestId("generation-ready-status")).toHaveText("1 variant generated");
+  expect(await page.evaluate(() => window.BlockPlanAPI.listVariants())).toHaveLength(1);
+});
+
+test("Generate Block Plans reports missing size without changing geometry or mode", async ({ page }) => {
+  await page.goto(`${appUrl}?agent=1`);
+  const before = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.clear(); api.paintRect({ x: 7, y: 8, width: 1, height: 1, categoryId: "unassigned" });
+    api.setBubbleDiagram({ version: 1, bubbles: [{ id: "room", name: "Room", type: "room", size: null, quantity: 1, position: { x: 0, y: 0 }, metadata: {} }], connectors: [] });
+    return api.getPlan().cells;
+  });
+  await page.getByTestId("mode-bubble").click();
+  await page.getByTestId("generate-block-plans").click();
+  await expect(page.getByTestId("generation-ready-status")).toHaveText("Generation failed · Add an area to every space");
+  await expect(page.getByTestId("mode-bubble")).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByTestId("review-dock")).toBeHidden();
+  const after = await page.evaluate(() => ({ plan: window.BlockPlanAPI.getPlan(), variants: window.BlockPlanAPI.listVariants() }));
+  expect(after.variants).toEqual([]);
+  expect(after.plan.cells).toEqual(before);
 });
 
 test("CustomEvent bridge accepts MCP-style tool calls", async ({ page }) => {

@@ -560,6 +560,7 @@
         plan.cells = GenerationModel.clone(variant.blockPlan.cells);
         activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
         sync("Variant activated");
+        window.dispatchEvent(new CustomEvent("blockplan-variant-activated", { detail: { variantId: variant.variantId } }));
         return success({ variantId: variant.variantId, plan: serializePlanForSave() });
       } catch (error) { return failure(error); }
     },
