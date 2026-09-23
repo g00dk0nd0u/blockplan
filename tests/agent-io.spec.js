@@ -51,7 +51,7 @@ test("Agent IO panel is opt-in and agent mode preloads tool/resource discovery",
   await expect(page.getByTestId("generate-block-plans")).toBeHidden();
   expect(await page.evaluate(() => window.BlockPlanAgent.listTools().tools.map((tool) => tool.name))).toEqual([
     "prepare_generation_request", "get_generation_request", "submit_generated_variants",
-    "get_variant_validation", "activate_variant", "get_iteration_request"
+    "get_variant_validation", "get_layout_problem", "evaluate_layout_variant", "activate_variant", "get_iteration_request"
   ]);
 
   await page.goto(`${appUrl}?agent=1`);

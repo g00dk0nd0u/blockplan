@@ -439,6 +439,26 @@
       } catch (error) { return failure(error); }
     },
 
+    getLayoutProblem(id, options = {}) {
+      try {
+        if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error("Layout Problem options must be an object");
+        const snapshot = findSnapshot(id);
+        const frozen = snapshot.metadata && snapshot.metadata.generationContext;
+        const generationContext = frozen === undefined
+          ? { version: 1, moduleSizeMm: plan.moduleSizeMm, categories: plan.categories }
+          : frozen;
+        const relevantMemory = window.MemoryModel
+          ? window.MemoryModel.relevantMemory({ ...(options.memoryContext || {}), requirementsSnapshotId: id })
+          : [];
+        return LayoutIntelligence.buildLayoutProblem({
+          requirementsSnapshot: snapshot,
+          generationContext,
+          relevantMemory,
+          rulePack: options.rulePack
+        });
+      } catch (error) { return failure(error); }
+    },
+
     createVariant(input) {
       try {
         const snapshot = findSnapshot(input && input.requirementsSnapshotId);
@@ -567,6 +587,17 @@
         const variant = findVariant(id);
         const snapshot = findSnapshot(variant.requirementsSnapshotId);
         return GenerationModel.clone(GenerationModel.validate(variant, snapshot));
+      } catch (error) { return failure(error); }
+    },
+
+    evaluateVariantLayout(id, options = {}) {
+      try {
+        if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error("Variant evaluation options must be an object");
+        const variant = findVariant(id);
+        const snapshot = findSnapshot(variant.requirementsSnapshotId);
+        const frozen = snapshot.metadata && snapshot.metadata.generationContext;
+        const rulePack = options.rulePack === undefined && frozen ? frozen.rulePack : options.rulePack;
+        return LayoutIntelligence.evaluateVariant(variant, snapshot, { rulePack });
       } catch (error) { return failure(error); }
     },
 
