@@ -7,7 +7,7 @@ async function seedReviewScenario(page) {
   await page.evaluate(() => {
     const api = window.BlockPlanAPI;
     api.clear();
-    api.paintRect({ x: 7, y: 7, width: 1, height: 1, categoryId: "office", zoneId: "manual" });
+    api.paintRect({ x: 7, y: 7, width: 1, height: 1, categoryId: "unassigned", zoneId: "manual" });
     api.setBubbleDiagram({
       version: 1,
       bubbles: [{ id: "room", name: "Room", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } }],

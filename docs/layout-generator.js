@@ -138,9 +138,21 @@
   function compareStates(a, b, strategy) { const av = stateDimensions(a, strategy), bv = stateDimensions(b, strategy); for (let i = 0; i < av.length; i += 1) if (av[i] !== bv[i]) return av[i] - bv[i]; return JSON.stringify(a.placements).localeCompare(JSON.stringify(b.placements)); }
 
   function blockPlanFrom(state, problem) {
-    const cells = {}, zoneAssignments = {}, categoryId = problem.categories[0].id;
-    state.placements.forEach((p) => { const zoneId = `generated::${p.instanceId}`; zoneAssignments[zoneId] = { bubbleId: p.instanceId.split("::")[0] }; for (let y = p.y; y < p.y + p.height; y += 1) for (let x = p.x; x < p.x + p.width; x += 1) cells[`${x},${y}`] = { categoryId, zoneId }; });
-    return { moduleSizeMm: problem.moduleSizeMm, categories: clone(problem.categories), cells, zoneAssignments };
+    const cells = {}, zoneAssignments = {};
+    const categories = clone(problem.categories || []);
+    if (!categories.some((category) => category.id === "unassigned")) {
+      categories.unshift(GenerationModel.categoriesFromBubbles([])[0]);
+    }
+    const categoryIds = new Set(categories.map((category) => category.id));
+    state.placements.forEach((p) => {
+      const zoneId = `generated::${p.instanceId}`;
+      const bubbleId = p.bubbleId || p.instanceId.split("::")[0];
+      const projectedCategoryId = GenerationModel.bubbleCategoryId(bubbleId);
+      const categoryId = categoryIds.has(projectedCategoryId) ? projectedCategoryId : "unassigned";
+      zoneAssignments[zoneId] = { bubbleId };
+      for (let y = p.y; y < p.y + p.height; y += 1) for (let x = p.x; x < p.x + p.width; x += 1) cells[`${x},${y}`] = { categoryId, zoneId };
+    });
+    return { moduleSizeMm: problem.moduleSizeMm, categories, cells, zoneAssignments };
   }
 
   function candidateDimensions(evaluation) {

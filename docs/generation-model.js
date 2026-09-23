@@ -2,6 +2,29 @@
 
 (function installGenerationModel() {
   const clone = (value) => value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  const UNASSIGNED_CATEGORY = Object.freeze({ id: "unassigned", name: "Unassigned", color: "#B8B4AE" });
+  const BUBBLE_CATEGORY_COLORS = Object.freeze(["#78909C", "#7E9C76", "#9A7EAE", "#C08A6A", "#5F8FA8", "#A68B5B", "#B06F7A", "#6F9B91"]);
+
+  function bubbleCategoryId(bubbleId) {
+    return `bubble::${bubbleId}`;
+  }
+
+  function bubbleCategoryColor(bubbleId) {
+    let hash = 2166136261;
+    for (const character of String(bubbleId)) {
+      hash ^= character.codePointAt(0);
+      hash = Math.imul(hash, 16777619);
+    }
+    return BUBBLE_CATEGORY_COLORS[(hash >>> 0) % BUBBLE_CATEGORY_COLORS.length];
+  }
+
+  function categoriesFromBubbles(bubbles) {
+    return [clone(UNASSIGNED_CATEGORY), ...(bubbles || []).map((bubble) => ({
+      id: bubbleCategoryId(bubble.id),
+      name: bubble.name,
+      color: bubbleCategoryColor(bubble.id)
+    }))];
+  }
 
   function emptyState() {
     return { version: 1, requirementsSnapshots: [], variants: [] };
@@ -215,5 +238,5 @@
     return { dataErrors, hardViolations, softIssues, metrics: { quantities, sizes, relationships, orphans } };
   }
 
-  window.GenerationModel = { clone, emptyState, normalizeState, normalizeBlockPlan, requireValidState, requirementsFromDiagram, zonesFor, validate };
+  window.GenerationModel = { clone, emptyState, normalizeState, normalizeBlockPlan, requireValidState, requirementsFromDiagram, zonesFor, validate, bubbleCategoryId, bubbleCategoryColor, categoriesFromBubbles };
 })();

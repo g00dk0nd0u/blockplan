@@ -118,10 +118,12 @@ test("prepared requests freeze module size and categories in immutable Snapshot 
     return { prepared, fetched, snapshotBefore, snapshotAfter, semanticBefore, current: api.getPlan() };
   });
 
-  const frozenCategories = [
-    { id: "program-a", name: "Program A", color: "#123456" },
-    { id: "support-a", name: "Support A", color: "#ABCDEF" }
-  ];
+  const frozenCategories = result.prepared.request.requirements.bubbles.map((bubble) => ({
+    id: `bubble::${bubble.id}`,
+    name: bubble.name,
+    color: result.prepared.request.categories.find((category) => category.id === `bubble::${bubble.id}`).color
+  }));
+  frozenCategories.unshift({ id: "unassigned", name: "Unassigned", color: "#B8B4AE" });
   expect(result.snapshotBefore.metadata).toEqual({
     purpose: "ai-generation",
     generationContext: { version: 1, moduleSizeMm: 1200, categories: frozenCategories }

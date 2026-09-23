@@ -17,6 +17,8 @@ test("BlockPlan hidden API can create and validate a plan", async ({ page }) => 
     const api = window.BlockPlanAPI;
     api.clear();
     api.setModuleSize(3600);
+    api.addCategory({ id: "office", name: "Office", color: "#AABB9C" });
+    api.addCategory({ id: "meeting", name: "Meeting", color: "#90B0C4" });
     const category = api.addCategory({ id: "lab", name: "Lab", color: "#7BA7C7" });
     if (!category.ok) return category;
     const a = api.paintRect({ x: 0, y: 0, width: 4, height: 3, categoryId: "office", zoneId: "office-a" });
@@ -414,7 +416,7 @@ test("setPlan rejects malformed persisted generation atomically", async ({ page 
   const results = await page.evaluate(() => {
     const api = window.BlockPlanAPI;
     api.clear();
-    api.paintRect({ x: 7, y: 7, width: 1, height: 1, categoryId: "office", zoneId: "working" });
+    api.paintRect({ x: 7, y: 7, width: 1, height: 1, categoryId: "unassigned", zoneId: "working" });
     const before = api.getPlan();
     const snapshot = {
       requirementsSnapshotId: "requirements-1", version: 1, createdAt: "2026-01-01T00:00:00.000Z", metadata: {},
@@ -452,7 +454,7 @@ test("createVariant rejects malformed categories and mixed-category zones atomic
   const results = await page.evaluate(() => {
     const api = window.BlockPlanAPI;
     api.clear();
-    api.paintRect({ x: 3, y: 3, width: 1, height: 1, categoryId: "office", zoneId: "working" });
+    api.paintRect({ x: 3, y: 3, width: 1, height: 1, categoryId: "unassigned", zoneId: "working" });
     api.setBubbleDiagram({ version: 1, bubbles: [
       { id: "a", name: "A", size: { value: 1, unit: "sqm" }, quantity: 1, position: { x: 0, y: 0 } }
     ], connectors: [] });

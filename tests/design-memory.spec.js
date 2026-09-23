@@ -218,7 +218,7 @@ test("malformed localStorage Memory does not partially restore its Plan", async 
   expect(plan.cells).toEqual({});
   expect(plan.memory).toEqual({ version: 1, items: [] });
   await expect(page.getByTestId("module-size")).toHaveValue("3600");
-  await expect(page.locator(".category-name")).toHaveText(["Unassigned", "Office", "Meeting", "Core", "Circulation", "MEP"]);
+  await expect(page.locator(".category-name")).toHaveText(["Unassigned"]);
   await expect(page.locator(".dashboard-table tbody tr").first().locator("td").last()).toHaveText("0");
   await expect(page.getByTestId("memory-dock")).toBeHidden();
   await expect(page.getByTestId("review-dock")).toBeHidden();
