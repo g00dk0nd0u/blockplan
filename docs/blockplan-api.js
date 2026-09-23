@@ -459,6 +459,18 @@
       } catch (error) { return failure(error); }
     },
 
+    generateLayoutCandidates(id, options = {}) {
+      try {
+        if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error("Layout generator options must be an object");
+        const snapshot = findSnapshot(id);
+        const problem = api.getLayoutProblem(id);
+        if (problem && problem.ok === false) throw new Error(problem.error);
+        const cleanOptions = { ...options };
+        delete cleanOptions.requirementsSnapshotId;
+        return LayoutGenerator.generateCandidates(problem, GenerationModel.clone(snapshot), cleanOptions);
+      } catch (error) { return failure(error); }
+    },
+
     createVariant(input) {
       try {
         const snapshot = findSnapshot(input && input.requirementsSnapshotId);
