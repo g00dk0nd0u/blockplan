@@ -90,6 +90,76 @@ test("prepare creates one immutable semantic request, defaults to three, and get
   expect(result.afterGet.bubbleDiagram).toEqual(result.before.bubbleDiagram);
 });
 
+test("prepared requests freeze module size and categories in immutable Snapshot metadata", async ({ page }) => {
+  await page.goto(appUrl);
+  await seedDiagram(page);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setModuleSize(1200);
+    const planA = api.getPlan();
+    planA.categories = [
+      { id: "program-a", name: "Program A", color: "#123456" },
+      { id: "support-a", name: "Support A", color: "#ABCDEF" }
+    ];
+    api.setPlan(planA);
+
+    const prepared = window.BlockPlanAgent.callTool("prepare_generation_request", {});
+    const snapshotId = prepared.request.requirementsSnapshotId;
+    const snapshotBefore = api.getRequirementsSnapshot(snapshotId);
+    const semanticBefore = JSON.parse(JSON.stringify(snapshotBefore.bubbles));
+
+    const planB = api.getPlan();
+    planB.moduleSizeMm = 2400;
+    planB.categories = [{ id: "program-b", name: "Program B", color: "#654321" }];
+    api.setPlan(planB);
+
+    const fetched = window.BlockPlanAgent.callTool("get_generation_request", { requirementsSnapshotId: snapshotId });
+    const snapshotAfter = api.getRequirementsSnapshot(snapshotId);
+    return { prepared, fetched, snapshotBefore, snapshotAfter, semanticBefore, current: api.getPlan() };
+  });
+
+  const frozenCategories = [
+    { id: "program-a", name: "Program A", color: "#123456" },
+    { id: "support-a", name: "Support A", color: "#ABCDEF" }
+  ];
+  expect(result.snapshotBefore.metadata).toEqual({
+    purpose: "ai-generation",
+    generationContext: { version: 1, moduleSizeMm: 1200, categories: frozenCategories }
+  });
+  expect(result.current).toMatchObject({ moduleSizeMm: 2400, categories: [{ id: "program-b" }] });
+  expect(result.fetched.request).toMatchObject({ moduleSizeMm: 1200, categories: frozenCategories });
+  expect(result.snapshotAfter).toEqual(result.snapshotBefore);
+  expect(result.fetched.request.requirements.bubbles).toEqual(result.semanticBefore);
+  expect(result.fetched.request.requirements.bubbles.every((bubble) => !("position" in bubble))).toBe(true);
+});
+
+test("legacy Snapshot without generationContext falls back without mutating the Snapshot", async ({ page }) => {
+  await page.goto(appUrl);
+  await seedDiagram(page);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    const legacy = api.createRequirementsSnapshot({ metadata: { purpose: "legacy" } }).requirementsSnapshot;
+    api.setModuleSize(1800);
+    const current = api.getPlan();
+    current.categories = [{ id: "legacy-fallback", name: "Legacy Fallback", color: "#345678" }];
+    api.setPlan(current);
+    const request = window.BlockPlanAgent.callTool("get_generation_request", {
+      requirementsSnapshotId: legacy.requirementsSnapshotId
+    });
+    return { legacy, stored: api.getRequirementsSnapshot(legacy.requirementsSnapshotId), request };
+  });
+
+  expect(result.request).toMatchObject({
+    ok: true,
+    request: {
+      moduleSizeMm: 1800,
+      categories: [{ id: "legacy-fallback", name: "Legacy Fallback", color: "#345678" }]
+    }
+  });
+  expect(result.stored).toEqual(result.legacy);
+  expect(result.stored.metadata).toEqual({ purpose: "legacy" });
+});
+
 test("generation request includes only deterministically relevant approved Memory", async ({ page }) => {
   await page.goto(appUrl);
   await seedDiagram(page);

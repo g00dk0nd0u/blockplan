@@ -52,14 +52,24 @@
   function rootRequest(requirementsSnapshotId, options = {}) {
     const context = api.getGenerationContext(requirementsSnapshotId, options.memoryContext || {});
     if (context && context.ok === false) throw new Error(context.error);
+    const frozenContext = context.requirementsSnapshot.metadata && context.requirementsSnapshot.metadata.generationContext;
+    const generationContext = frozenContext === undefined
+      ? {
+          moduleSizeMm: context.workingBlockPlan.moduleSizeMm,
+          categories: context.workingBlockPlan.categories
+        }
+      : frozenContext;
+    if (!generationContext || typeof generationContext !== "object" || Array.isArray(generationContext)) {
+      throw new Error("Requirements Snapshot generationContext must be an object");
+    }
     return clone({
       contract: CONTRACT,
       requestType: "generation",
       requirementsSnapshotId,
       requestedVariantCount: count(options.requestedVariantCount),
       requirements: context.requirementsSnapshot,
-      moduleSizeMm: context.workingBlockPlan.moduleSizeMm,
-      categories: context.workingBlockPlan.categories,
+      moduleSizeMm: generationContext.moduleSizeMm,
+      categories: generationContext.categories,
       relevantMemory: context.relevantMemory || [],
       candidateOutput
     });
@@ -74,7 +84,18 @@
       if (diagram && diagram.ok === false) throw new Error(diagram.error);
       if (!diagram.bubbles.length) return fail("EMPTY_BUBBLE_DIAGRAM", "Add at least one Bubble before preparing generation");
       count(options.requestedVariantCount);
-      const created = api.createRequirementsSnapshot({ metadata: { purpose: "ai-generation" } });
+      const working = api.getStateSummary();
+      if (working && working.ok === false) throw new Error(working.error);
+      const created = api.createRequirementsSnapshot({
+        metadata: {
+          purpose: "ai-generation",
+          generationContext: clone({
+            version: 1,
+            moduleSizeMm: working.moduleSizeMm,
+            categories: working.categories
+          })
+        }
+      });
       if (!created.ok) throw new Error(created.error);
       latestRequest = rootRequest(created.requirementsSnapshot.requirementsSnapshotId, options);
       return { ok: true, request: clone(latestRequest) };
