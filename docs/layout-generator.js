@@ -101,8 +101,8 @@
   function overlaps(a, b) { return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height; }
   function inFrame(rect, frame) { const b = frame.bounds; return rect.x >= b.x && rect.y >= b.y && rect.x + rect.width <= b.x + b.width && rect.y + rect.height <= b.y + b.height; }
 
-  function frontierPlacements(shape, state, frame, strategy, instanceId) {
-    const results = [], add = (x, y) => results.push({ instanceId, x, y, width: shape.widthCells, height: shape.heightCells, shape });
+  function frontierPlacements(shape, state, frame, strategy, instanceId, bubbleId) {
+    const results = [], add = (x, y) => results.push({ instanceId, bubbleId, x, y, width: shape.widthCells, height: shape.heightCells, shape });
     const b = frame.bounds;
     if (!state.placements.length) {
       const starts = strategy.family === "area-first" ? [[b.x, b.y], [b.x + b.width - shape.widthCells, b.y + b.height - shape.heightCells]] : strategy.family === "repeatability-first" ? [[b.x, b.y + Math.floor((b.height - shape.heightCells) / 2)], [b.x + b.width - shape.widthCells, b.y]] : [[b.x + Math.floor((b.width - shape.widthCells) / 2), b.y + Math.floor((b.height - shape.heightCells) / 2)], [b.x, b.y]];
@@ -146,7 +146,7 @@
     const categoryIds = new Set(categories.map((category) => category.id));
     state.placements.forEach((p) => {
       const zoneId = `generated::${p.instanceId}`;
-      const bubbleId = p.bubbleId || p.instanceId.split("::")[0];
+      const bubbleId = p.bubbleId;
       const projectedCategoryId = GenerationModel.bubbleCategoryId(bubbleId);
       const categoryId = categoryIds.has(projectedCategoryId) ? projectedCategoryId : "unassigned";
       zoneAssignments[zoneId] = { bubbleId };
@@ -241,6 +241,7 @@
     if (expanded.diagnostics.length) return { candidates: [], diagnostics, metadata: { frameSource: problem.generationFrame ? "explicit" : "inferred" } };
     const frame = problem.generationFrame ? normalizeGenerationFrame(problem.generationFrame) : inferFrame(expanded.instances);
     const frameSource = problem.generationFrame ? "explicit" : "inferred";
+    const instancesById = new Map(expanded.instances.map((instance) => [instance.instanceId, instance]));
     const shapes = new Map(expanded.instances.map((instance) => [instance.instanceId, enumerateShapeCandidates(instance, problem, options)]));
     for (const instance of expanded.instances) if (!shapes.get(instance.instanceId).length) diagnostics.push({ code: "no_feasible_shape", instanceId: instance.instanceId });
     if (diagnostics.length) return { candidates: [], diagnostics, metadata: { frame, frameSource } };
@@ -251,8 +252,9 @@
     for (const { strategy, allocatedStates } of strategyBudgets) {
       let beam = [{ placements: [] }], strategyExplored = 0, strategyExhausted = false;
       for (const instanceId of strategy.placementOrder) {
+        const instance = instancesById.get(instanceId);
         const next = [];
-        for (const state of beam) for (const shape of shapes.get(instanceId)) for (const placement of frontierPlacements(shape, state, frame, strategy, instanceId).slice(0, options.maxPlacementCandidatesPerInstance)) {
+        for (const state of beam) for (const shape of shapes.get(instanceId)) for (const placement of frontierPlacements(shape, state, frame, strategy, instanceId, instance.bubbleId).slice(0, options.maxPlacementCandidatesPerInstance)) {
           if (strategyExplored >= allocatedStates) { strategyExhausted = true; break; }
           strategyExplored += 1; exploredStates += 1;
           if (placementFeasible(placement, state.placements, strategy, frame)) next.push({ placements: [...state.placements, placement] });

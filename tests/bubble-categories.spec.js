@@ -96,3 +96,30 @@ test("legacy generator categories fall back safely to Unassigned", async ({ page
   expect(result.candidates[0].blockPlan.categories).toContainEqual(unassigned);
   expect(new Set(Object.values(result.candidates[0].blockPlan.cells).map((cell) => cell.categoryId))).toEqual(new Set(["unassigned"]));
 });
+
+test("generation preserves Bubble IDs containing the instance delimiter", async ({ page }) => {
+  await page.goto(appUrl);
+  const result = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    api.setModuleSize(1000);
+    api.setBubbleDiagram({ version: 1, bubbles: [
+      { id: "north::work", name: "North Work", type: "space", size: { value: 4, unit: "sqm" }, quantity: 1, position: { x: 10, y: 10 } }
+    ], connectors: [] });
+    const prepared = window.BlockPlanAgent.callTool("prepare_generation_request", {
+      requestedVariantCount: 1,
+      generationFrame: { version: 1, bounds: { x: 0, y: 0, width: 6, height: 6 } }
+    });
+    const generated = api.generateLayoutCandidates(prepared.request.requirementsSnapshotId, { requestedVariantCount: 1, maxStates: 1000 });
+    const candidate = generated.candidates[0];
+    const created = api.createVariant({ requirementsSnapshotId: prepared.request.requirementsSnapshotId, ...candidate });
+    return { generated, candidate, created, validation: created.ok ? api.validateVariantAgainstDiagram(created.variant.variantId) : null };
+  });
+
+  expect(result.generated.candidates).toHaveLength(1);
+  expect(Object.values(result.candidate.blockPlan.zoneAssignments)).toEqual([{ bubbleId: "north::work" }]);
+  expect(result.candidate.blockPlan.categories).toContainEqual(expect.objectContaining({ id: "bubble::north::work", name: "North Work" }));
+  expect(new Set(Object.values(result.candidate.blockPlan.cells).map((cell) => cell.categoryId))).toEqual(new Set(["bubble::north::work"]));
+  expect(result.created.ok).toBe(true);
+  expect(result.validation.dataErrors).toEqual([]);
+  expect(result.validation.hardViolations).toEqual([]);
+});
