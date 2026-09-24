@@ -144,15 +144,18 @@ test("meaningful topology suppresses small offsets while preserving real spatial
       });
       return { strategy: "test", rationale: "test", dimensions, blockPlan: { moduleSizeMm: 1000, categories: [{ id: "x", name: "X", color: "#111111" }], cells, zoneAssignments } };
     };
-    const beside = candidate([{ zoneId: "work-1", bubbleId: "work", x: 0, y: 0, width: 2, height: 2 }, { zoneId: "meet-1", bubbleId: "meeting", x: 3, y: 0, width: 2, height: 1 }]);
-    const offset = candidate([{ zoneId: "renamed-work", bubbleId: "work", x: 10, y: 10, width: 2, height: 2 }, { zoneId: "renamed-meet", bubbleId: "meeting", x: 15, y: 11, width: 2, height: 1 }]);
+    const beside = candidate([{ zoneId: "work-1", bubbleId: "work", x: 0, y: 0, width: 2, height: 2 }, { zoneId: "meet-1", bubbleId: "meeting", x: 2, y: 0, width: 2, height: 1 }]);
+    const offset = candidate([{ zoneId: "renamed-work", bubbleId: "work", x: 10, y: 10, width: 2, height: 2 }, { zoneId: "renamed-meet", bubbleId: "meeting", x: 13, y: 11, width: 2, height: 1 }]);
     const below = candidate([{ zoneId: "work", bubbleId: "work", x: 0, y: 0, width: 2, height: 2 }, { zoneId: "meeting", bubbleId: "meeting", x: 0, y: 4, width: 2, height: 1 }]);
     const reshaped = candidate([{ zoneId: "work", bubbleId: "work", x: 0, y: 0, width: 2, height: 2 }, { zoneId: "meeting", bubbleId: "meeting", x: 3, y: 0, width: 1, height: 2 }]);
     const repeatedA = candidate([{ zoneId: "meeting::1", bubbleId: "meeting", x: 0, y: 0, width: 2, height: 1 }, { zoneId: "meeting::2", bubbleId: "meeting", x: 4, y: 1, width: 2, height: 1 }]);
     const repeatedB = candidate([{ zoneId: "meeting::2", bubbleId: "meeting", x: 20, y: 20, width: 2, height: 1 }, { zoneId: "meeting::1", bubbleId: "meeting", x: 24, y: 21, width: 2, height: 1 }]);
+    const prototypeId = candidate([{ zoneId: "prototype-zone", bubbleId: "__proto__", x: 0, y: 0, width: 2, height: 1 }]);
     const signature = window.LayoutGenerator.meaningfulTopologySignature;
     return {
       signatures: [beside, offset, below, reshaped, repeatedA, repeatedB].map(signature),
+      prototypeSignature: signature(prototypeId),
+      prototypeSelected: window.LayoutGenerator.selectDiverseCandidates([prototypeId], 1),
       selected: window.LayoutGenerator.selectDiverseCandidates([beside, offset, below, reshaped], 4).map(signature),
       deterministic: [window.LayoutGenerator.selectDiverseCandidates([offset, below, beside, reshaped], 4), window.LayoutGenerator.selectDiverseCandidates([offset, below, beside, reshaped], 4)]
     };
@@ -161,6 +164,8 @@ test("meaningful topology suppresses small offsets while preserving real spatial
   expect(result.signatures[0]).not.toBe(result.signatures[2]);
   expect(result.signatures[0]).not.toBe(result.signatures[3]);
   expect(result.signatures[4]).toBe(result.signatures[5]);
+  expect(JSON.parse(result.prototypeSignature).shapes).toEqual([["__proto__", ["2x1"]]]);
+  expect(result.prototypeSelected[0].blockPlan.zoneAssignments["prototype-zone"].bubbleId).toBe("__proto__");
   expect(new Set(result.selected).size).toBe(3);
   expect(result.deterministic[0]).toEqual(result.deterministic[1]);
 });
@@ -176,22 +181,34 @@ test("1200 mm office benchmark returns deterministic, feasible meaningful topolo
       { id: "support", name: "Support", type: "support", size: { value: 18, unit: "sqm" }, quantity: 1 },
       { id: "reception", name: "Reception", type: "reception", size: { value: 12, unit: "sqm" }, quantity: 1 }
     ], connectors: [
-      { id: "work-meeting", fromBubbleId: "work", toBubbleId: "meeting", relationType: "adjacent", priority: "required" },
+      { id: "work-meeting", fromBubbleId: "work", toBubbleId: "meeting", relationType: "adjacent", priority: "preferred" },
       { id: "meeting-reception", fromBubbleId: "meeting", toBubbleId: "reception", relationType: "near", priority: "preferred" },
-      { id: "support-reception", fromBubbleId: "support", toBubbleId: "reception", relationType: "separate", priority: "required" }
+      { id: "support-reception", fromBubbleId: "support", toBubbleId: "reception", relationType: "separate", priority: "preferred" }
     ] });
-    const prepared = window.BlockPlanAgent.callTool("prepare_generation_request", { generationFrame: { version: 1, bounds: { x: 0, y: 0, width: 24, height: 18 } } });
+    const prepared = window.BlockPlanAgent.callTool("prepare_generation_request", { requestedVariantCount: 3 });
     const id = prepared.request.requirementsSnapshotId;
-    const first = api.generateLayoutCandidates(id, { requestedVariantCount: 3, maxStates: 50000 });
-    const second = api.generateLayoutCandidates(id, { requestedVariantCount: 3, maxStates: 50000 });
+    const first = api.generateLayoutCandidates(id, { requestedVariantCount: 3 });
+    const second = api.generateLayoutCandidates(id, { requestedVariantCount: 3 });
     const snapshot = api.getRequirementsSnapshot(id), problem = api.getLayoutProblem(id);
     const evaluations = first.candidates.map((candidate) => window.LayoutIntelligence.evaluateVariant({ variantId: "benchmark", requirementsSnapshotId: id, blockPlan: candidate.blockPlan }, snapshot, { layoutProblem: problem }));
-    return { first, second, evaluations, signatures: first.candidates.map(window.LayoutGenerator.meaningfulTopologySignature) };
+    const dimensions = evaluations.map((evaluation) => ({
+      hardViolationCount: evaluation.dataErrors.length + evaluation.hardViolations.length,
+      preferredIssueCount: evaluation.softIssues.length,
+      areaDeviationSum: evaluation.metrics.bubbles.flatMap((bubble) => bubble.relativeAreaDeviations).filter((value) => value !== null).reduce((sum, value) => sum + value, 0),
+      repeatabilityMismatchCount: evaluation.metrics.bubbles.filter((bubble) => !bubble.repeatability.identicalShapes).length
+    }));
+    return { first, second, evaluations, dimensions, signatures: first.candidates.map(window.LayoutGenerator.meaningfulTopologySignature) };
   });
   expect(result.first).toEqual(result.second);
   expect(result.first.candidates.length).toBeGreaterThan(0);
   expect(result.first.candidates.length).toBeLessThanOrEqual(3);
+  expect(result.first.metadata.frameSource).toBe("inferred");
   expect(new Set(result.signatures).size).toBe(result.first.candidates.length);
+  const dominates = (a, b) => Object.keys(a).every((key) => a[key] <= b[key]) && Object.keys(a).some((key) => a[key] < b[key]);
+  result.dimensions.forEach((candidate, index) => expect(result.dimensions.some((other, otherIndex) => otherIndex !== index && dominates(other, candidate))).toBe(false));
+  const fewer = result.first.diagnostics.find((diagnostic) => diagnostic.code === "fewer_distinct_candidates");
+  if (result.first.candidates.length < 3) expect(fewer).toMatchObject({ requested: 3, available: result.first.candidates.length });
+  else expect(fewer).toBeUndefined();
   result.evaluations.forEach((evaluation) => { expect(evaluation.dataErrors).toEqual([]); expect(evaluation.hardViolations).toEqual([]); });
 });
 

@@ -228,12 +228,12 @@
       const minX = Math.min(...xs), minY = Math.min(...ys);
       return { bubbleId: assignment.bubbleId, minX, minY, width: Math.max(...xs) - minX + 1, height: Math.max(...ys) - minY + 1 };
     });
-    const bubbles = {};
+    const bubbles = new Map();
     records.forEach((record) => {
-      if (!bubbles[record.bubbleId]) bubbles[record.bubbleId] = [];
-      bubbles[record.bubbleId].push(`${record.width}x${record.height}`);
+      if (!bubbles.has(record.bubbleId)) bubbles.set(record.bubbleId, []);
+      bubbles.get(record.bubbleId).push(`${record.width}x${record.height}`);
     });
-    const shapes = Object.keys(bubbles).sort().map((bubbleId) => [bubbleId, bubbles[bubbleId].sort()]);
+    const shapes = [...bubbles.keys()].sort().map((bubbleId) => [bubbleId, bubbles.get(bubbleId).sort()]);
     const spatial = [];
     const relation = (a, b) => {
       const ax = a.minX + a.width / 2, ay = a.minY + a.height / 2;
