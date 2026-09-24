@@ -21,6 +21,29 @@ test("fresh and cleared plans use only the active Unassigned category", async ({
   await page.getByTestId("clear-plan").click();
   expect((await page.evaluate(() => window.BlockPlanAPI.getPlan())).categories).toEqual([unassigned]);
   await expect(page.locator('.dashboard-category-row[data-category-id="unassigned"]')).toHaveClass(/is-active/);
+
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  expect((await page.evaluate(() => window.BlockPlanAPI.getPlan())).categories).toEqual([
+    unassigned,
+    { id: "manual", name: "Manual", color: "#123456" }
+  ]);
+});
+
+test("Clear Plan undo restores a modified default category without geometry", async ({ page }) => {
+  await page.goto(appUrl);
+  const modified = { id: "unassigned", name: "Not Yet Assigned", color: "#778899" };
+  await page.evaluate((modified) => {
+    const plan = window.BlockPlanAPI.getPlan();
+    plan.categories = [modified];
+    window.BlockPlanAPI.setPlan(plan);
+  }, modified);
+
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByTestId("clear-plan").click();
+  expect((await page.evaluate(() => window.BlockPlanAPI.getPlan())).categories).toEqual([unassigned]);
+
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+z" : "Control+z");
+  expect((await page.evaluate(() => window.BlockPlanAPI.getPlan())).categories).toEqual([modified]);
 });
 
 test("explicit categories in an old saved plan load unchanged", async ({ page }) => {

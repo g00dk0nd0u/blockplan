@@ -269,7 +269,8 @@ function installUndoCaptureHandlers() {
     clearButton.addEventListener(
       "click",
       () => {
-        if (Object.keys(plan.cells).length || plan.underlay) pushUndoState();
+        const clearsCategories = JSON.stringify(plan.categories) !== JSON.stringify(defaultPlan.categories);
+        if (Object.keys(plan.cells).length || plan.underlay || clearsCategories) pushUndoState();
       },
       true
     );
