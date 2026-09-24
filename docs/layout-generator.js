@@ -216,16 +216,68 @@
     return JSON.stringify({ geometry, adjacency: adjacency.sort() });
   }
 
+  function meaningfulTopologySignature(candidate) {
+    const zones = new Map();
+    Object.entries(candidate.blockPlan.cells).forEach(([key, cell]) => {
+      if (!zones.has(cell.zoneId)) zones.set(cell.zoneId, []);
+      zones.get(cell.zoneId).push(key.split(",").map(Number));
+    });
+    const records = [...zones.entries()].map(([zoneId, points]) => {
+      const assignment = candidate.blockPlan.zoneAssignments[zoneId];
+      const xs = points.map(([x]) => x), ys = points.map(([, y]) => y);
+      const minX = Math.min(...xs), minY = Math.min(...ys);
+      return { bubbleId: assignment.bubbleId, minX, minY, width: Math.max(...xs) - minX + 1, height: Math.max(...ys) - minY + 1 };
+    });
+    const bubbles = {};
+    records.forEach((record) => {
+      if (!bubbles[record.bubbleId]) bubbles[record.bubbleId] = [];
+      bubbles[record.bubbleId].push(`${record.width}x${record.height}`);
+    });
+    const shapes = Object.keys(bubbles).sort().map((bubbleId) => [bubbleId, bubbles[bubbleId].sort()]);
+    const spatial = [];
+    const relation = (a, b) => {
+      const ax = a.minX + a.width / 2, ay = a.minY + a.height / 2;
+      const bx = b.minX + b.width / 2, by = b.minY + b.height / 2;
+      const xGap = Math.max(0, a.minX - (b.minX + b.width), b.minX - (a.minX + a.width));
+      const yGap = Math.max(0, a.minY - (b.minY + b.height), b.minY - (a.minY + a.height));
+      if (xGap === 0 && yGap > 0) return ay < by ? "above" : "below";
+      if (yGap === 0 && xGap > 0) return ax < bx ? "left" : "right";
+      if (xGap === 0 && yGap === 0) return Math.abs(ax - bx) >= Math.abs(ay - by) ? (ax < bx ? "left" : "right") : (ay < by ? "above" : "below");
+      return `${ay < by ? "above" : "below"}-${ax < bx ? "left" : "right"}`;
+    };
+    for (let i = 0; i < records.length; i += 1) for (let j = i + 1; j < records.length; j += 1) {
+      let a = records[i], b = records[j];
+      if (a.bubbleId > b.bubbleId) [a, b] = [b, a];
+      const direction = a.bubbleId === b.bubbleId
+        ? relation(a, b).replace(/left|right/, "horizontal").replace(/above|below/, "vertical")
+        : relation(a, b);
+      spatial.push(`${a.bubbleId}~${b.bubbleId}:${direction}`);
+    }
+    return JSON.stringify({ shapes, spatial: spatial.sort() });
+  }
+
+  function compareCandidateQuality(a, b) {
+    for (const key of ["hardViolationCount", "preferredIssueCount", "areaDeviationSum", "repeatabilityMismatchCount"]) {
+      if (a.dimensions[key] !== b.dimensions[key]) return a.dimensions[key] - b.dimensions[key];
+    }
+    return diversitySignature(a).localeCompare(diversitySignature(b)) || a.strategy.localeCompare(b.strategy);
+  }
+
   function selectDiverseCandidates(candidates, count) {
     const pareto = candidates.filter((candidate, index) => !candidates.some((other, otherIndex) => otherIndex !== index && dominates(other.dimensions, candidate.dimensions)));
-    const ordered = [...pareto].sort((a, b) => a.strategy.localeCompare(b.strategy) || diversitySignature(a).localeCompare(diversitySignature(b)));
+    const representatives = new Map();
+    pareto.forEach((candidate) => {
+      const signature = meaningfulTopologySignature(candidate), current = representatives.get(signature);
+      if (!current || compareCandidateQuality(candidate, current) < 0) representatives.set(signature, candidate);
+    });
+    const ordered = [...representatives.values()].sort((a, b) => a.strategy.localeCompare(b.strategy) || meaningfulTopologySignature(a).localeCompare(meaningfulTopologySignature(b)) || diversitySignature(a).localeCompare(diversitySignature(b)));
     const selected = [], signatures = new Set(), families = [...new Set(ordered.map((candidate) => candidate.strategy))];
     for (let familyIndex = 0; selected.length < count; familyIndex += 1) {
       let added = false;
       for (const family of families) {
-        const candidate = ordered.filter((item) => item.strategy === family).find((item) => !signatures.has(diversitySignature(item)));
+        const candidate = ordered.filter((item) => item.strategy === family).find((item) => !signatures.has(meaningfulTopologySignature(item)));
         if (!candidate) continue;
-        signatures.add(diversitySignature(candidate)); selected.push(candidate); added = true;
+        signatures.add(meaningfulTopologySignature(candidate)); selected.push(candidate); added = true;
         if (selected.length === count) break;
       }
       if (!added || familyIndex >= ordered.length) break;
@@ -279,5 +331,5 @@
     return clone({ candidates: selected, diagnostics, metadata: { frame, frameSource, exploredStates, strategySearch, strategies: strategies.map(({ version, strategyId, requirementsSnapshotId, family, placementOrder, relationshipIntentions, rationale }) => ({ version, strategyId, requirementsSnapshotId, family, placementOrder, relationshipIntentions, rationale })) } });
   }
 
-  window.LayoutGenerator = { DEFAULTS, normalizeGenerationFrame, normalizeOptions, expandSpaceInstances, enumerateShapeCandidates, buildTopologyStrategies, generateCandidates, repairCandidate, selectDiverseCandidates, diversitySignature, rectTouches };
+  window.LayoutGenerator = { DEFAULTS, normalizeGenerationFrame, normalizeOptions, expandSpaceInstances, enumerateShapeCandidates, buildTopologyStrategies, generateCandidates, repairCandidate, selectDiverseCandidates, diversitySignature, meaningfulTopologySignature, rectTouches };
 })();
