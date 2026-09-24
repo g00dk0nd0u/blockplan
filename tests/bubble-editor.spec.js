@@ -158,7 +158,7 @@ test("Bubble Editor supports direct manipulation and semantic connectors", async
   await expect(page.locator(".bubble-wire-hit")).toHaveCount(0);
   expect((await page.evaluate(() => window.BlockPlanAPI.getBubbleDiagram())).connectors).toEqual([]);
 
-  const paint = await page.evaluate(() => window.BlockPlanAPI.paintRect({ x: 1, y: 1, width: 2, height: 2, categoryId: "office", zoneId: "regression" }));
+  const paint = await page.evaluate(() => window.BlockPlanAPI.paintRect({ x: 1, y: 1, width: 2, height: 2, categoryId: "unassigned", zoneId: "regression" }));
   expect(paint.ok).toBe(true);
   await page.locator("[data-testid='mode-block']").click();
   await expect(page.locator("[data-testid='planning-canvas']")).toBeVisible();
@@ -245,8 +245,8 @@ test("Bubble keyboard actions do not mutate hidden Block Plan selections", async
   await page.goto(appUrl);
   await page.evaluate(() => {
     localStorage.clear();
-    window.BlockPlanAPI.paintRect({ x: 0, y: 0, width: 2, height: 2, categoryId: "office", zoneId: "zone-a" });
-    window.BlockPlanAPI.paintRect({ x: 4, y: 0, width: 2, height: 2, categoryId: "office", zoneId: "zone-b" });
+    window.BlockPlanAPI.paintRect({ x: 0, y: 0, width: 2, height: 2, categoryId: "unassigned", zoneId: "zone-a" });
+    window.BlockPlanAPI.paintRect({ x: 4, y: 0, width: 2, height: 2, categoryId: "unassigned", zoneId: "zone-b" });
   });
   const view = await page.evaluate(() => window.BlockPlanAPI.fitToView());
   const canvas = await page.locator("[data-testid='planning-canvas']").boundingBox();
@@ -278,7 +278,7 @@ test("Bubble mutations use the shared chronological Undo stack", async ({ page }
   await page.goto(appUrl);
   await page.evaluate(() => {
     localStorage.clear();
-    window.BlockPlanAPI.paintRect({ x: 0, y: 0, width: 2, height: 2, categoryId: "office", zoneId: "kept-zone" });
+    window.BlockPlanAPI.paintRect({ x: 0, y: 0, width: 2, height: 2, categoryId: "unassigned", zoneId: "kept-zone" });
   });
   await page.locator("[data-testid='mode-bubble']").click();
   const workspace = page.locator("[data-testid='bubble-workspace']");
@@ -343,7 +343,7 @@ test("Bubble mutations use the shared chronological Undo stack", async ({ page }
   await page.locator("[data-testid='mode-block']").click();
   await page.evaluate(() => {
     window.pushUndoState();
-    window.BlockPlanAPI.paintRect({ x: 5, y: 5, width: 1, height: 1, categoryId: "office", zoneId: "undo-zone" });
+    window.BlockPlanAPI.paintRect({ x: 5, y: 5, width: 1, height: 1, categoryId: "unassigned", zoneId: "undo-zone" });
   });
   await page.keyboard.press("Control+z");
   expect((await page.evaluate(() => window.BlockPlanAPI.getZones())).some((zone) => zone.zoneId === "undo-zone")).toBe(false);

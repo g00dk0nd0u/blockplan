@@ -168,7 +168,11 @@ test("Data Center benchmark uses generic rules and yields deterministic repeatab
   cells["5,0"] = { categoryId: "space", zoneId: "mmr1" };
   const result = await installBenchmark(page, dataCenter, cells, assignments);
   expect(result.created.ok).toBe(true);
-  expect(result.problem).toMatchObject({ moduleSizeMm: 1000, categories });
+  expect(result.problem.moduleSizeMm).toBe(1000);
+  expect(result.problem.categories.map(({ id, name }) => ({ id, name }))).toEqual([
+    { id: "unassigned", name: "Unassigned" },
+    ...dataCenter.bubbles.map((bubble) => ({ id: `bubble::${bubble.id}`, name: bubble.name }))
+  ]);
   expect(result.evaluation.qualityDimensions.repeatability.find((item) => item.bubbleId === "hall")).toMatchObject({ zoneCount: 2, distinctShapeCount: 1, identicalShapes: true });
   expect(result.evaluation.hardViolations).toEqual([]);
   expect(result.evaluation).not.toHaveProperty("overallScore");
@@ -182,7 +186,11 @@ test("Office benchmark runs through the same domain-neutral evaluator", async ({
   cells["3,0"] = { categoryId: "space", zoneId: "reception1" }; cells["3,1"] = { categoryId: "space", zoneId: "support1" };
   const result = await installBenchmark(page, office, cells, assignments);
   expect(result.created.ok).toBe(true);
-  expect(result.problem).toMatchObject({ moduleSizeMm: 1000, categories });
+  expect(result.problem.moduleSizeMm).toBe(1000);
+  expect(result.problem.categories.map(({ id, name }) => ({ id, name }))).toEqual([
+    { id: "unassigned", name: "Unassigned" },
+    ...office.bubbles.map((bubble) => ({ id: `bubble::${bubble.id}`, name: bubble.name }))
+  ]);
   expect(result.evaluation.hardViolations).toEqual([]);
   expect(result.problem.spaces.map((space) => space.type)).toEqual(["work", "collaboration", "arrival", "support"]);
   expect(result.evaluation.criticFindings).toEqual([]);

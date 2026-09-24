@@ -10,15 +10,8 @@ const BUBBLE_RELATION_TYPES = ["adjacent", "near", "separate"];
 const BUBBLE_PRIORITIES = ["required", "preferred", "optional"];
 
 const categories = [
-  { id: "unassigned", name: "Unassigned", color: "#B8B4AE" },
-  { id: "office", name: "Office", color: "#AABB9C" },
-  { id: "meeting", name: "Meeting", color: "#90B0C4" },
-  { id: "core", name: "Core", color: "#C0A090" },
-  { id: "circulation", name: "Circulation", color: "#D2C890" },
-  { id: "mep", name: "MEP", color: "#A89EB8" }
+  { id: "unassigned", name: "Unassigned", color: "#B8B4AE" }
 ];
-const defaultCategoryColors = new Map(categories.map((category) => [category.id, category.color]));
-
 const defaultUnderlay = {
   name: "",
   type: "image",
@@ -41,7 +34,7 @@ const defaultPlan = {
 };
 
 let plan = clonePlan(defaultPlan);
-let activeCategoryId = "office";
+let activeCategoryId = "unassigned";
 let isPainting = false;
 let isPanning = false;
 let isSpaceDown = false;
@@ -1692,10 +1685,6 @@ function normalizePlan(source) {
     normalized.underlay = cloneUnderlay(normalized.underlay);
   }
 
-  normalized.categories = normalized.categories.map((category) => ({
-    ...category,
-    color: defaultCategoryColors.get(category.id) || category.color
-  }));
   assignMissingZoneIds(normalized);
   requireValidBubbleDiagram(normalized.bubbleDiagram);
   GenerationModel.requireValidState(normalized.generation);
@@ -1844,6 +1833,8 @@ function clearPlan() {
     return;
   }
   plan.cells = {};
+  plan.categories = clonePlan(defaultPlan).categories;
+  activeCategoryId = "unassigned";
   selectedZoneSignature = null;
   transformDraft = null;
   persistPlan();

@@ -95,7 +95,7 @@
           generationContext: clone({
             version: 1,
             moduleSizeMm: working.moduleSizeMm,
-            categories: working.categories,
+            categories: GenerationModel.categoriesFromBubbles(diagram.bubbles),
             ...(options.rulePack === undefined ? {} : { rulePack: LayoutIntelligence.requireValidRulePack(options.rulePack) }),
             ...(options.generationFrame === undefined ? {} : { generationFrame: LayoutIntelligence.normalizeGenerationFrame(options.generationFrame) })
           })
