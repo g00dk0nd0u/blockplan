@@ -48,7 +48,13 @@
       return;
     }
     dock.hidden = false;
-    if (!variants.some((variant) => variant.variantId === selectedVariantId)) selectedVariantId = variants[0].variantId;
+    if (!variants.some((variant) => variant.variantId === selectedVariantId)) {
+      if (reviewModeActive) {
+        setReviewMode(false);
+        return;
+      }
+      selectedVariantId = variants[0].variantId;
+    }
     const selected = variants.find((variant) => variant.variantId === selectedVariantId);
     dock.innerHTML = `<div class="review-dock-row">
       <label>Variant <select data-testid="review-variant-select">${variants.map((variant) => `<option value="${escapeHtml(variant.variantId)}"${variant.variantId === selectedVariantId ? " selected" : ""}>${escapeHtml(variant.variantId)}${variant.strategy ? ` · ${escapeHtml(variant.strategy)}` : ""}</option>`).join("")}</select></label>
@@ -70,6 +76,7 @@
 
   dock.addEventListener("click", (event) => {
     if (event.target.closest("[data-testid='review-delete-variant']")) {
+      const deletingFromReview = reviewModeActive;
       const result = window.BlockPlanAPI.deleteVariant(selectedVariantId);
       if (!result.ok) lifecycleError = result.error;
       else {
@@ -77,7 +84,7 @@
         pendingDecision = null;
         const remaining = window.BlockPlanAPI.listVariants().filter((variant) => variant.requirementsSnapshotId === currentRequirementsSnapshotId);
         selectedVariantId = remaining.length ? [...remaining].sort((a, b) => a.generationIndex - b.generationIndex || a.variantId.localeCompare(b.variantId))[0].variantId : null;
-        if (!remaining.length && reviewModeActive) setReviewMode(false);
+        if (deletingFromReview && reviewModeActive) setReviewMode(false);
       }
       refreshReviewDock();
       return;

@@ -95,6 +95,35 @@ test("Review Dock keeps one generation set current and Delete preserves working 
   expect(ids.a).not.toBe(ids.b);
 });
 
+test("deleting during Review detaches unchanged geometry until Review is entered again", async ({ page }) => {
+  await prepare(page);
+  const expected = await page.evaluate(() => {
+    const api = window.BlockPlanAPI;
+    const make = (x) => ({ moduleSizeMm: 1000, categories: [{ id: "space", name: "Space", color: "#abcdef" }], cells: { [`${x},0`]: { categoryId: "space", zoneId: `z${x}` } }, zoneAssignments: { [`z${x}`]: { bubbleId: "room" } } });
+    const snapshot = api.createRequirementsSnapshot().requirementsSnapshot;
+    api.createVariant({ variantId: "b1", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: make(1) });
+    api.createVariant({ variantId: "b2", requirementsSnapshotId: snapshot.requirementsSnapshotId, blockPlan: make(2) });
+    api.activateVariant("b1");
+    return { b1: api.getVariant("b1").blockPlan.cells, b2: api.getVariant("b2").blockPlan.cells };
+  });
+
+  const dock = page.getByTestId("review-dock");
+  await page.getByTestId("review-toggle").click();
+  await expect(dock).toContainText("Reviewing b1");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getPlan().cells)).toEqual(expected.b1);
+
+  await page.getByTestId("review-delete-variant").click();
+  expect((await page.evaluate(() => window.BlockPlanAPI.listVariants())).map((variant) => variant.variantId)).toEqual(["b2"]);
+  await expect(page.getByTestId("review-variant-select")).toHaveValue("b2");
+  await expect(page.locator("body")).not.toHaveClass(/review-mode/);
+  await expect(dock).not.toContainText("Reviewing b2");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getPlan().cells)).toEqual(expected.b1);
+
+  await page.getByTestId("review-toggle").click();
+  await expect(dock).toContainText("Reviewing b2");
+  expect(await page.evaluate(() => window.BlockPlanAPI.getPlan().cells)).toEqual(expected.b2);
+});
+
 test("Discard Set confirms, is atomic in the UI, and surfaces blocked reasons", async ({ page }) => {
   await prepare(page);
   await page.evaluate(() => {
