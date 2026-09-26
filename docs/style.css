@@ -433,7 +433,7 @@ h2 {
   border-radius: 8px;
   box-shadow: var(--shadow);
   font-size: 12px;
-  max-width: 310px;
+  max-width: 390px;
   padding: 8px;
   position: absolute;
   right: 14px;
@@ -441,6 +441,7 @@ h2 {
   z-index: 6;
 }
 .review-dock-row, .review-decisions, .review-editor-actions { align-items: center; display: flex; gap: 6px; justify-content: space-between; }
+.review-dock-row button { white-space: nowrap; }
 .review-dock select, .review-dock textarea { box-sizing: border-box; font: inherit; max-width: 100%; }
 .review-target { color: var(--muted); margin: 7px 0; }
 .review-decisions button { flex: 1; }
@@ -449,6 +450,7 @@ h2 {
 .review-editor textarea { resize: vertical; width: 100%; }
 .review-save { background: var(--accent); color: white; }
 .review-error { color: #9a3028; margin: 0; }
+.review-lifecycle-error { margin-top: 6px; }
 body.review-mode .tool-actions, body.review-mode .left-sidebar, body.review-mode .right-sidebar { opacity: .45; pointer-events: none; }
 
 #planningCanvas {

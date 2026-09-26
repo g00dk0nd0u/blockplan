@@ -124,6 +124,16 @@
     return plan.generation.variants.reduce((maximum, variant) => Math.max(maximum, variant.generationIndex), 0) + 1;
   }
 
+  function variantDeletionBlocker(variant, deletingVariantIds = new Set()) {
+    if (plan.generation.variants.some((item) => !deletingVariantIds.has(item.variantId) && item.parentVariantId === variant.variantId)) {
+      return `Cannot delete Variant with children: ${variant.variantId}`;
+    }
+    if (plan.review.reviews.some((review) => review.variantId === variant.variantId || review.preferredOverVariantId === variant.variantId)) {
+      return `Cannot delete Variant referenced by Review history: ${variant.variantId}`;
+    }
+    return null;
+  }
+
   function requireCompleteGeneratedBlockPlan(input, snapshot) {
     const allowed = new Set(["moduleSizeMm", "categories", "cells", "zoneAssignments"]);
     Object.keys(input || {}).forEach((key) => {
@@ -165,6 +175,7 @@
         if (typeof clearUndoHistory === "function") clearUndoHistory();
         activeCategoryId = plan.categories[0] ? plan.categories[0].id : "unassigned";
         sync("API plan loaded");
+        window.dispatchEvent(new CustomEvent("blockplan-plan-loaded"));
         return success({ plan: serializePlanForSave() });
       } catch (error) { return failure(error); }
     },
@@ -583,15 +594,41 @@
     deleteVariant(id) {
       try {
         const variant = findVariant(id);
-        if (plan.generation.variants.some((item) => item.parentVariantId === variant.variantId)) {
-          throw new Error(`Cannot delete Variant with children: ${variant.variantId}`);
-        }
-        if (plan.review.reviews.some((review) => review.variantId === variant.variantId || review.preferredOverVariantId === variant.variantId)) {
-          throw new Error(`Cannot delete Variant referenced by Review history: ${variant.variantId}`);
-        }
+        const blocker = variantDeletionBlocker(variant);
+        if (blocker) throw new Error(blocker);
         plan.generation.variants = plan.generation.variants.filter((item) => item.variantId !== variant.variantId);
         sync("Variant deleted");
         return success({ variantId: variant.variantId });
+      } catch (error) { return failure(error); }
+    },
+
+    deleteVariantSet(requirementsSnapshotId) {
+      try {
+        const snapshot = findSnapshot(requirementsSnapshotId);
+        const variants = plan.generation.variants.filter((item) => item.requirementsSnapshotId === snapshot.requirementsSnapshotId);
+        const deletingVariantIds = new Set(variants.map((variant) => variant.variantId));
+        for (const variant of variants) {
+          const blocker = variantDeletionBlocker(variant, deletingVariantIds);
+          if (blocker) throw new Error(blocker);
+        }
+
+        const generation = GenerationModel.normalizeState({
+          ...plan.generation,
+          variants: plan.generation.variants.filter((variant) => !deletingVariantIds.has(variant.variantId)),
+          requirementsSnapshots: plan.generation.requirementsSnapshots.filter((item) =>
+            item.requirementsSnapshotId !== snapshot.requirementsSnapshotId ||
+            plan.generation.variants.some((variant) => !deletingVariantIds.has(variant.variantId) && variant.requirementsSnapshotId === item.requirementsSnapshotId))
+        });
+        GenerationModel.requireValidState(generation);
+        const snapshotDeleted = !generation.requirementsSnapshots.some((item) => item.requirementsSnapshotId === snapshot.requirementsSnapshotId);
+        plan.generation = generation;
+        sync("Variant set discarded");
+        return success({
+          requirementsSnapshotId: snapshot.requirementsSnapshotId,
+          deletedVariantIds: [...deletingVariantIds],
+          deletedVariantCount: deletingVariantIds.size,
+          snapshotDeleted
+        });
       } catch (error) { return failure(error); }
     },
 
